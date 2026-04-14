@@ -1,0 +1,27 @@
+# values/inventory-service.yaml
+image:
+  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/inventory-service
+  tag: latest
+
+service:
+  port: 8082
+
+env:
+  - name: SPRING_DATASOURCE_URL
+    value: "jdbc:postgresql://ecommerce-db.xxxx.us-east-1.rds.amazonaws.com:5432/inventory_db"
+  - name: SPRING_DATASOURCE_USERNAME
+    value: "inventory_user"
+  - name: SPRING_DATASOURCE_PASSWORD
+    value: "secret"
+  - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+    value: "msk-bootstrap:9092"
+  - name: SERVER_PORT
+    value: "8082"
+
+ingress:
+  enabled: true
+  hosts:
+    - host: inventory.ecommerce.com
+      paths:
+        - path: /
+          pathType: Prefix

@@ -1,7 +1,7 @@
 replicaCount: 2
 
 image:
-  repository: "" # This will be injected by GitHub Actions
+  repository: ""
   pullPolicy: IfNotPresent
   tag: "latest"
 
@@ -9,7 +9,18 @@ service:
   type: ClusterIP
   port: 8080
 
-env: [] # Custom env vars for each service
+ingress:
+  enabled: false
+  className: "alb" # AWS Load Balancer Controller
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+  hosts:
+    - host: ecommerce.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
 
 resources:
   limits:
@@ -19,6 +30,28 @@ resources:
     cpu: 200m
     memory: 256Mi
 
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
 serviceAccount:
   create: true
-  annotations: {} # This is where we put the IRSA Role ARN from Terraform
+  annotations: {}
+
+env: []
+
+# Liveness and Readiness probes for Spring Boot Actuator
+livenessProbe:
+  httpGet:
+    path: /actuator/health/liveness
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /actuator/health/readiness
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10

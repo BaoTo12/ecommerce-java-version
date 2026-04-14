@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/YOUR_GITHUB_USERNAME/ecommerce-java-version.git
+    repoURL: https://github.com/BaoTo12/ecommerce-java-version.git
     targetRevision: HEAD
     path: charts/microservice
     helm:
