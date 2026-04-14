@@ -1,0 +1,42 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: user-service
+  datasource:
+    url: jdbc:postgresql://localhost:5437/user_db
+    username: user_user
+    password: secret
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,info
+  endpoint:
+    health:
+      show-details: always
+
+app:
+  jwt:
+    secret: T8527G5bvpx172miHv/Q5cDB8fs3cxW9AlmbifI5RKk=
+    expiration-ms: 86400000
+
+logging:
+  level:
+    com.ecommerce: DEBUG
+  pattern:
+    console: '{"timestamp":"%d{yyyy-MM-dd''T''HH:mm:ss.SSS}","level":"%-5level","service":"user-service","message":"%msg"}%n'

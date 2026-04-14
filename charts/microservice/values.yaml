@@ -1,0 +1,24 @@
+replicaCount: 2
+
+image:
+  repository: "" # This will be injected by GitHub Actions
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 8080
+
+env: [] # Custom env vars for each service
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+serviceAccount:
+  create: true
+  annotations: {} # This is where we put the IRSA Role ARN from Terraform
