@@ -1,0 +1,62 @@
+# ==============================================================================
+# PR CHECK PIPELINE — Runs on every Pull Request
+#
+# PURPOSE: Fast feedback for developers before code review.
+#          Fails fast on compilation errors or test failures.
+#          Never pushes images or touches deployment config.
+#
+# WHY separate from ci.yaml?
+# ci.yaml also runs on PRs (for the build step), but this dedicated PR
+# workflow provides additional checks:
+#   - Code style (Checkstyle via Maven)
+#   - No AWS credentials needed (purely build + test)
+#   - Faster: fails earlier if just a syntax error
+# ==============================================================================
+
+name: PR — Build Validation
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+env:
+  JAVA_VERSION: "21"
+
+# PRs only need read access
+permissions:
+  contents: read
+  checks: write        # Needed to post test results
+  pull-requests: write # Needed to post test summary as PR comment
+
+jobs:
+  validate:
+    name: Compile & Test All Services
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: "temurin"
+          cache: maven
+
+      # Build everything including shared modules
+      - name: Compile all modules
+        run: mvn compile --no-transfer-progress
+
+      # Run ALL tests across all services
+      - name: Run all tests
+        run: |
+          mvn test --no-transfer-progress \
+            -Dsurefire.failIfNoSpecifiedTests=false
+
+      # Publish test results as a PR check
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()  # Run even if tests fail, so we can see the report
+        with:
+          files: "**/target/surefire-reports/*.xml"

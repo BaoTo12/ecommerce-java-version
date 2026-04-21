@@ -26,8 +26,8 @@ This project is not a basic CRUD e-commerce app. It is designed as a modern dist
 ### 4. Idempotency and Deduplication Across Event Consumers
 - Assumes at-least-once message delivery and handles duplicates safely.
 - Uses deterministic idempotency keys per service and event.
-- Redis key-based deduplication prevents duplicate processing effects.
-- Database uniqueness constraints provide an additional backstop.
+- Database-based deduplication table (`idempotency_keys`) prevents duplicate processing effects.
+- Unique constraints provide an additional backstop.
 
 ### 5. Event-Driven Microservices with Clear Boundaries
 - Strict database-per-service ownership.

@@ -49,7 +49,7 @@ Client
 │  PG  │ │   PG    │   PostgreSQL (per service)
 └──────┘ └─────────┘
 
-Shared Infrastructure: Kafka, Redis
+Shared Infrastructure: Kafka, PostgreSQL
 ```
 
 ### Core Design Principles
@@ -60,7 +60,7 @@ Shared Infrastructure: Kafka, Redis
 | Async communication | All inter-service calls via Kafka events — no synchronous HTTP between services |
 | Eventual consistency | Inter-service state converges via Saga + compensating transactions |
 | Event delivery guarantee | Outbox Pattern — events never lost on publish failure |
-| Idempotent consumers | Redis-based deduplication on every Kafka consumer |
+| Idempotent consumers | Database-based deduplication table (`idempotency_keys`) on every Kafka consumer |
 | Full audit trail | `order_status_history` append-only table — no UPDATE/DELETE |
 
 ---
@@ -229,10 +229,10 @@ Every Kafka message MUST carry these headers:
 
 | Service | Database | Schema |
 |---|---|---|
-| Order Service | `order_db` | `product_catalog`, `carts`, `cart_items`, `checkout_sessions`, `orders`, `order_items`, `order_status_history`, `order_read_model`, `outbox_messages` |
-| Inventory Service | `inventory_db` | `inventory` |
-| Payment Service | `payment_db` | `payments` |
-| Notification Service | `notification_db` | `notifications` |
+| Order Service | `order_db` | `product_catalog`, `carts`, `cart_items`, `checkout_sessions`, `orders`, `order_items`, `order_status_history`, `order_read_model`, `outbox_messages`, `idempotency_keys` |
+| Inventory Service | `inventory_db` | `inventory`, `idempotency_keys` |
+| Payment Service | `payment_db` | `payments`, `idempotency_keys` |
+| Notification Service | `notification_db` | `notifications`, `idempotency_keys` |
 
 **Rule:** No service reads another service's database directly. Data sharing happens only via Kafka events.
 
@@ -382,40 +382,48 @@ If two Kafka consumers attempt to update the same order concurrently (e.g., dupl
 
 ## 9. Idempotency Strategy
 
-### Redis Key Convention
+### Database-based Idempotency
+
+Instead of Redis, the system uses a database table `idempotency_keys` in each service's schema to ensure at-least-once delivery doesn't result in duplicate processing.
+
+### Idempotency Key Convention
 
 ```
 {service}:{eventType}:{aggregateId}
 
 Examples:
+  order:inventory-reserved:ord-uuid-123
+  order:payment-succeeded:ord-uuid-123
   inventory:order-created:ord-uuid-123
-  payment:payment-requested:ord-uuid-123
-  notification:order-confirmed:ord-uuid-123
 ```
 
 ### Implementation Pattern
 
 ```java
-@KafkaListener(topics = "orders.created")
-public void onOrderCreated(OrderCreatedEvent event) {
-    String key = "inventory:order-created:" + event.getOrderId();
-
-    // SETNX — atomic set-if-not-exists
-    Boolean isNew = redis.opsForValue()
-        .setIfAbsent(key, "processed", Duration.ofHours(24));
-
-    if (Boolean.FALSE.equals(isNew)) {
+@Transactional
+public void processEvent(Event event) {
+    String key = buildKey(event);
+    
+    // Attempt to insert into idempotency_keys
+    // If key already exists, unique constraint violation occurs
+    try {
+        idempotencyRepository.insert(new IdempotencyKey(key));
+    } catch (DataIntegrityViolationException e) {
         log.warn("Duplicate event skipped: {}", key);
-        return; // already processed
+        return;
     }
 
-    // process...
+    // Continue with business logic...
 }
 ```
 
-**TTL:** 24 hours — covers Kafka's max retry window.
-
-**Note:** Redis key is set BEFORE processing, not after. This is intentional — if processing fails, the key expires and the event is retried on next delivery (at-least-once guarantee still holds).
+**Schema:**
+```sql
+CREATE TABLE idempotency_keys (
+    key         VARCHAR(255) PRIMARY KEY,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
 
 ---
 
@@ -486,8 +494,7 @@ docker-compose.yml
 ├── postgres-payment       (port 5435)
 ├── postgres-notification  (port 5436)
 ├── kafka                  (port 9092)
-├── zookeeper              (port 2181)
-└── redis                  (port 6379)
+└── zookeeper              (port 2181)
 ```
 
 ### Environment Variables (per service)
@@ -500,9 +507,6 @@ SPRING_DATASOURCE_PASSWORD=secret
 
 SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
 KAFKA_CONSUMER_GROUP_ID=order-service
-
-REDIS_HOST=redis
-REDIS_PORT=6379
 
 OUTBOX_WORKER_POLL_INTERVAL_MS=500
 OUTBOX_WORKER_BATCH_SIZE=100
@@ -520,8 +524,7 @@ Services MUST start in this order (handled by `depends_on` in Docker Compose):
 1. PostgreSQL instances (all 4)
 2. Zookeeper
 3. Kafka
-4. Redis
-5. Application services (all 4, parallel)
+4. Application services (all 4, parallel)
 ```
 
 ### Network Topology
@@ -533,7 +536,6 @@ All containers on same network.
 Services communicate by container name:
   order-service → postgres-order:5432
   order-service → kafka:9092
-  order-service → redis:6379
 ```
 
 ---
@@ -612,5 +614,4 @@ Services communicate by container name:
 - No cascading timeouts
 
 **Trade-off:** No immediate consistency — Order Service does not know inventory reservation result synchronously. Saga adds latency to the full order flow (~1-3 seconds end-to-end). Debugging requires correlating logs across services by `correlationId`.
-
 

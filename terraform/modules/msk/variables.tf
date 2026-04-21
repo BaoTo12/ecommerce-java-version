@@ -1,11 +1,6 @@
 variable "cluster_name" {
-  description = "Name of the MSK cluster"
+  description = "MSK cluster name"
   type        = string
-}
-
-variable "subnet_ids" {
-  description = "Subnet IDs for the MSK brokers"
-  type        = list(string)
 }
 
 variable "vpc_id" {
@@ -13,8 +8,13 @@ variable "vpc_id" {
   type        = string
 }
 
+variable "subnet_ids" {
+  description = "Private subnet IDs — one broker placed per subnet (per AZ)"
+  type        = list(string)
+}
+
 variable "allowed_cidr_blocks" {
-  description = "CIDR blocks allowed to connect to MSK"
+  description = "CIDR blocks allowed to connect to Kafka brokers"
   type        = list(string)
 }
 

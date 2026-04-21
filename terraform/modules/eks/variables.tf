@@ -4,7 +4,7 @@ variable "cluster_name" {
 }
 
 variable "subnet_ids" {
-  description = "Subnet IDs for the EKS cluster and node group"
+  description = "List of subnet IDs for EKS nodes — use private subnets"
   type        = list(string)
 }
 
@@ -15,19 +15,19 @@ variable "desired_capacity" {
 }
 
 variable "max_capacity" {
-  description = "Maximum number of worker nodes"
+  description = "Maximum number of worker nodes (for cluster autoscaler)"
   type        = number
-  default     = 3
+  default     = 4
 }
 
 variable "min_capacity" {
   description = "Minimum number of worker nodes"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "instance_types" {
-  description = "Instance types for the worker nodes"
+  description = "EC2 instance types for worker nodes. t3.medium is minimum recommended for EKS."
   type        = list(string)
   default     = ["t3.medium"]
 }

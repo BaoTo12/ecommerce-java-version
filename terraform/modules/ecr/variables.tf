@@ -1,5 +1,5 @@
 variable "name" {
-  description = "CHIBAO ECR repository"
+  description = "Service name — becomes the ECR repository name (e.g. order-service)"
   type        = string
 }
 

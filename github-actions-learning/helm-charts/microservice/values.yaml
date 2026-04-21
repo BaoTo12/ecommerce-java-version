@@ -1,0 +1,139 @@
+# ==============================================================================
+# DEFAULT VALUES — Applied to all services unless overridden
+#
+# HOW VALUES OVERRIDE WORKS (priority, lowest to highest):
+#   1. These defaults (values.yaml)
+#   2. Per-service file (values/<service>.yaml) passed via ArgoCD
+#   3. --set flags at helm install time (rarely used in GitOps)
+#
+# When ArgoCD deploys order-service:
+#   helm upgrade order-service charts/microservice \
+#     -f charts/values/order-service.yaml
+#
+# The per-service file only needs to define what's DIFFERENT from these defaults.
+# Everything not specified in the per-service file uses these defaults.
+# ==============================================================================
+
+# Number of pod replicas
+replicaCount: 2
+
+image:
+  # repository: overridden per service in values/<service>.yaml
+  # Format: <account_id>.dkr.ecr.<region>.amazonaws.com/<service-name>
+  repository: ""
+
+  pullPolicy: IfNotPresent
+
+  # tag: MUST be overridden by CI pipeline (never use "latest" in production)
+  # "latest" is set here only as a fallback — CI always sets this to git SHA
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  # Port the pod listens on — overridden per service (8081, 8082, etc.)
+  port: 8080
+
+# ==============================================================================
+# INGRESS — AWS Load Balancer Controller
+#
+# WHY ingress instead of LoadBalancer service type?
+# LoadBalancer type creates one NLB per service = expensive (each NLB costs ~$18/mo)
+# Ingress + AWS LBC creates ONE ALB that routes to all services by path/host = cheaper
+# ==============================================================================
+ingress:
+  enabled: false
+  className: "alb"
+  annotations:
+    # "internet-facing" = public ALB. Use "internal" for internal-only services.
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # "ip" = routes directly to pod IPs (EKS best practice vs "instance" mode)
+    alb.ingress.kubernetes.io/target-type: ip
+    # HTTPS redirect
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+  hosts:
+    - host: ecommerce.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# ==============================================================================
+# RESOURCE LIMITS
+#
+# WHY set both requests and limits?
+# requests: what the pod is guaranteed to get (used for scheduling)
+# limits:   maximum the pod can use (killed/throttled if exceeded)
+#
+# Without requests: Kubernetes can't schedule properly → resource starvation
+# Without limits: One runaway pod can starve all others on the node
+# ==============================================================================
+resources:
+  limits:
+    cpu: 500m      # 0.5 vCPU — hard ceiling
+    memory: 512Mi  # 512 MB — hard ceiling (OOMKilled if exceeded)
+  requests:
+    cpu: 200m      # 0.2 vCPU — guaranteed minimum
+    memory: 256Mi  # 256 MB — guaranteed minimum
+
+# ==============================================================================
+# AUTOSCALING (HPA — HorizontalPodAutoscaler)
+#
+# When CPU > 70%, Kubernetes automatically adds more pods (up to maxReplicas).
+# When CPU drops, it scales back down (after stabilization window).
+# ==============================================================================
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+# ==============================================================================
+# SERVICE ACCOUNT — Required for IRSA
+#
+# The annotations field will be set per-service to include the IAM role ARN.
+# This is how IRSA works: the ServiceAccount annotation tells the EKS
+# pod identity webhook to inject AWS credentials for that IAM role.
+#
+# Example (set in values/<service>.yaml):
+#   serviceAccount:
+#     annotations:
+#       eks.amazonaws.com/role-arn: arn:aws:iam::123456789:role/order-service-role
+# ==============================================================================
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Environment variables passed to the container
+# Override this per service to set SPRING_DATASOURCE_URL etc.
+# NOTE: Sensitive values (passwords) should use External Secrets Operator
+#       not plain text env vars! See values/<service>.yaml for pattern.
+env: []
+
+# ==============================================================================
+# HEALTH PROBES — Spring Boot Actuator
+#
+# livenessProbe:  Is the process alive? If this fails, pod is restarted.
+# readinessProbe: Is the pod ready to receive traffic? If this fails,
+#                 pod is removed from service endpoints (no traffic sent).
+#
+# WHY 60s initialDelaySeconds?
+# Spring Boot with JPA + Flyway takes ~30-45s to start.
+# If probes start too early, Kubernetes kills the pod before it finishes starting.
+# ==============================================================================
+livenessProbe:
+  httpGet:
+    path: /actuator/health/liveness
+    port: http
+  initialDelaySeconds: 60
+  periodSeconds: 15
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /actuator/health/readiness
+    port: http
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  failureThreshold: 3

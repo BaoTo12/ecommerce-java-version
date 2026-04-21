@@ -1,5 +1,6 @@
 resource "aws_vpc" "main" {
-  cidr_block           = var.vpc_cidr
+  cidr_block = var.vpc_cidr
+  # required for EKS to resolve DNS Names
   enable_dns_hostnames = true
   enable_dns_support   = true
 
@@ -9,21 +10,28 @@ resource "aws_vpc" "main" {
   }
 }
 
+# * PUBLIC SUBNETS — One per Availability Zone
 resource "aws_subnet" "public" {
-  count                   = length(var.public_subnets)
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnets[count.index]
-  availability_zone       = var.azs[count.index]
+  count             = length(var.public_subnets)
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = var.public_subnets[count.index]
+  availability_zone = var.azs[count.index]
+  # Resources in public subnets automatically get a public IP
   map_public_ip_on_launch = true
 
   tags = {
-    Name                                        = "${var.project_name}-public-${count.index + 1}"
-    Environment                                 = var.environment
+    Name        = "${var.project_name}-public-${count.index + 1}"
+    Environment = var.environment
+
+    # EKS tags: Tell the EKS load balancer controller which subnets to use.
+    # "shared" means both the cluster and the user can manage resources here.
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-    "kubernetes.io/role/elb"                    = "1"
+    # This tag tells EKS to place internet-facing load balancers in these subnets.
+    "kubernetes.io/role/elb" = "1"
   }
 }
 
+# * PRIVATE SUBNETS — One per Availability Zone
 resource "aws_subnet" "private" {
   count             = length(var.private_subnets)
   vpc_id            = aws_vpc.main.id
@@ -34,7 +42,8 @@ resource "aws_subnet" "private" {
     Name                                        = "${var.project_name}-private-${count.index + 1}"
     Environment                                 = var.environment
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-    "kubernetes.io/role/internal-elb"           = "1"
+    # This tag tells EKS to place internal load balancers in these subnets.
+    "kubernetes.io/role/internal-elb" = "1"
   }
 }
 
@@ -56,6 +65,7 @@ resource "aws_eip" "nat" {
   }
 }
 
+# Why we need Elastic IP Address for NAT Gateway --> this allows outbound connection always comes from the same IP
 resource "aws_nat_gateway" "main" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public[0].id

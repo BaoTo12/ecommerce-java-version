@@ -1,0 +1,67 @@
+# ==============================================================================
+# ORDER-SERVICE — ArgoCD Application
+#
+# This is a CHILD application managed by the app-of-apps root.
+# ArgoCD discovers this file and creates the Application automatically.
+#
+# WHAT THIS DOES:
+#   Source: charts/microservice/ + charts/values/order-service.yaml
+#   Destination: EKS cluster, "default" namespace
+#   Sync: Automated — deploys whenever charts/values/order-service.yaml changes
+#
+# HOW DEPLOYMENT HAPPENS:
+#   1. Developer pushes code to GitHub
+#   2. CI pipeline builds image → pushes to ECR → updates charts/values/order-service.yaml
+#      with new image tag (e.g., main-a1b2c3d)
+#   3. ArgoCD detects change in charts/values/order-service.yaml
+#   4. ArgoCD runs: helm upgrade order-service charts/microservice -f charts/values/order-service.yaml
+#   5. Kubernetes performs rolling update
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: order-service
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/BaoTo12/ecommerce-java-version.git
+    targetRevision: HEAD
+
+    # Path to the Helm chart
+    path: charts/microservice
+
+    helm:
+      # Per-service values file — CI updates image.tag here
+      valueFiles:
+        - ../../charts/values/order-service.yaml
+
+      # Additional values that don't go in the values file
+      # (could also go in values file — this is just another way)
+      parameters:
+        - name: fullnameOverride
+          value: order-service
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # ApplyOutOfSyncOnly: Only sync resources that are actually out of sync.
+      # Avoids unnecessary reconciliation of already-correct resources.
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

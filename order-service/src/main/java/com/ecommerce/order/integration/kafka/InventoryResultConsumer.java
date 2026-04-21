@@ -1,6 +1,6 @@
 package com.ecommerce.order.integration.kafka;
 
-import com.ecommerce.order.integration.redis.IdempotencyStore;
+import com.ecommerce.order.integration.IdempotencyStore;
 import com.ecommerce.order.service.OrderSagaService;
 import com.ecommerce.shared.event.InventoryFailedEvent;
 import com.ecommerce.shared.event.InventoryReservedEvent;
