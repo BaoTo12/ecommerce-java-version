@@ -27,7 +27,7 @@ resource "aws_eks_cluster" "main" {
   role_arn = aws_iam_role.cluster.arn
 
   vpc_config {
-    subnet_ids = var.subnet_ids
+    subnet_ids = var.control_plane_subnet_ids
 
     # endpoint_private_access: kubectl can reach API server from within VPC
     endpoint_private_access = true

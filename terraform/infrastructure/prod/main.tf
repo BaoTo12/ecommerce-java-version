@@ -17,12 +17,13 @@ module "vpc" {
 module "eks" {
   source = "../../modules/eks"
 
-  cluster_name     = var.cluster_name
-  subnet_ids       = module.vpc.private_subnet_ids
-  desired_capacity = 2
-  max_capacity     = 4
-  min_capacity     = 2
-  instance_types   = ["t3.medium"]
+  cluster_name             = var.cluster_name
+  subnet_ids               = module.vpc.private_subnet_ids
+  control_plane_subnet_ids = concat(module.vpc.public_subnet_ids, module.vpc.private_subnet_ids)
+  desired_capacity         = 2
+  max_capacity             = 4
+  min_capacity             = 2
+  instance_types           = ["t3.medium"]
 }
 
 # MODULE: ECR 

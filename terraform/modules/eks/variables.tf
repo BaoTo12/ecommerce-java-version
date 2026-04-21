@@ -8,6 +8,11 @@ variable "subnet_ids" {
   type        = list(string)
 }
 
+variable "control_plane_subnet_ids" {
+  description = "List of subnet IDs for EKS Control Plane — use BOTH public and private subnets"
+  type        = list(string)
+}
+
 variable "desired_capacity" {
   description = "Desired number of worker nodes"
   type        = number
