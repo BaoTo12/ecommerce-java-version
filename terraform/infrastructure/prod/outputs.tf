@@ -34,10 +34,12 @@ output "rds_endpoints" {
   value       = { for k, v in module.rds : k => v.rds_endpoint }
 }
 
+/*
 output "msk_bootstrap_brokers" {
   description = "Kafka bootstrap brokers — use in Spring Boot kafka.bootstrap-servers config"
   value       = module.msk.bootstrap_brokers
 }
+*/
 
 output "secrets_manager_arns" {
   description = "ARNs of created secrets — use in IAM policies and External Secrets Operator config"

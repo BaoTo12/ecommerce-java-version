@@ -14,6 +14,10 @@
 4. Deploy microservices via Helm + ArgoCD (see ../argocd/ and ../charts/)
 
 
+aws_region = "ap-southeast-1"
+dynamodb_table_name = "terraform-state-lock"
+kms_key_alias = "alias/terraform-state-key"
+state_bucket_name = "ecommerce-terraform-state-582604091743"
 
 ## 4. Text-Based Architecture Overview
 

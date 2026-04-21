@@ -162,6 +162,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
     id     = "cleanup-old-state-versions"
     status = "Enabled"
 
+    filter {}
+
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
@@ -222,4 +224,81 @@ output "kms_key_alias" {
 output "aws_region" {
   description = "Region where bootstrap resources were created"
   value       = "ap-southeast-1"
+}
+
+
+# =========================
+# 1. GitHub OIDC Provider
+# =========================
+resource "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+
+  client_id_list = [
+    "sts.amazonaws.com"
+  ]
+
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1"
+  ]
+}
+
+# =========================
+# 2. IAM Role for GitHub Actions
+# =========================
+resource "aws_iam_role" "github_actions_role" {
+  name = "github-actions-ecr-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.github.arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          }
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:*"
+          }
+        }
+      }
+    ]
+  })
+}
+
+# =========================
+# 3. ECR Push Policy
+# =========================
+resource "aws_iam_policy" "ecr_push_policy" {
+  name = "github-actions-ecr-push"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:CompleteLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:InitiateLayerUpload",
+          "ecr:PutImage"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# =========================
+# 4. Attach policy to role
+# =========================
+resource "aws_iam_role_policy_attachment" "attach_ecr_policy" {
+  role       = aws_iam_role.github_actions_role.name
+  policy_arn = aws_iam_policy.ecr_push_policy.arn
 }

@@ -1,6 +1,4 @@
-# ==============================================================================
 # CI PIPELINE — Continuous Integration
-#
 # TRIGGER: Any push to main/develop that changes microservice or shared code.
 #          Also runs on pull requests to main (but skips the deploy jobs).
 #
@@ -12,18 +10,15 @@
 # FULL GITOPS LOOP:
 #   Code push → CI builds image → CI commits new tag → ArgoCD detects → Deploys to EKS
 #
-# REQUIRED GITHUB SECRETS:
+# ! REQUIRED GITHUB SECRETS:
 #   AWS_ROLE_ARN  — IAM role for OIDC authentication (no access keys needed!)
 #   GH_PAT        — GitHub Personal Access Token (for the commit-back in Job 2)
-# ==============================================================================
 
 name: CI — Build, Test, Push & Update Helm
 
 on:
   push:
     branches: [main, develop]
-    # Only run when these files change — avoids unnecessary builds.
-    # E.g. changing README.md won't trigger a full build.
     paths:
       - "order-service/**"
       - "payment-service/**"
@@ -38,8 +33,7 @@ on:
   pull_request:
     branches: [main]
     # PRs also trigger this workflow — but Job 2 (deploy) is gated by:
-    #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    # So PRs only run Job 1 (build + test), which is exactly what we want.
+    #   if: github.ref == 'refs/heads/main' && github.event_name == 'push' --> So PRs only run Job 1 (build + test)
 
 env:
   AWS_REGION: ap-southeast-1
@@ -53,14 +47,12 @@ permissions:
   contents: write
 
 jobs:
-  # ============================================================================
   # JOB 1: Build, Test, Push Docker Image
   #
   # WHY matrix strategy?
   # Instead of copy-pasting the same job 5 times (once per service),
   # we define it once and GitHub runs it in PARALLEL for each service.
   # 5 services → 5 parallel jobs → pipeline is ~5x faster than sequential.
-  # ============================================================================
   build-and-push:
     name: "Build & Push — ${{ matrix.service }}"
     runs-on: ubuntu-latest
@@ -83,9 +75,8 @@ jobs:
       image-tag: ${{ steps.meta.outputs.image-tag }}
 
     steps:
-      # ── Step 1: Checkout ──────────────────────────────────────────────────
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # 👉 Clone repo về runner
 
       # ── Step 2: Determine which services actually changed ─────────────────
       # This avoids rebuilding order-service when only payment-service changed.
@@ -103,7 +94,6 @@ jobs:
 
       # ── Step 3: Generate image tag ────────────────────────────────────────
       # WHY use git SHA instead of "latest"?
-      # See CONCEPTS.md Concept 3. Short: enables rollbacks, works with IMMUTABLE ECR.
       - name: Generate image tag
         id: meta
         if: steps.filter.outputs.changed == 'true'
@@ -144,13 +134,12 @@ jobs:
             -DskipTests
 
       # ── Step 7: AWS Authentication (OIDC — no access keys!) ──────────────
-      # WHY OIDC instead of access keys?
       # GitHub generates a short-lived JWT token → AWS STS validates it →
       # returns temporary credentials. No long-lived secrets stored anywhere.
       # See README.md for the full OIDC flow diagram.
       - name: Configure AWS credentials via OIDC
         if: steps.filter.outputs.changed == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v4 # 👉 GitHub → OIDC token → AWS STS → temporary credentials
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}

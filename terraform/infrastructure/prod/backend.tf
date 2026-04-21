@@ -5,7 +5,7 @@ terraform {
     # S3 bucket created by bootstrap/main.tf
     # Replace <ACCOUNT_ID> with your AWS account ID, OR run:
     # terraform init -backend-config="bucket=$(terraform -chdir=../../bootstrap output -raw state_bucket_name)"
-    bucket = "ecommerce-terraform-state-<ACCOUNT_ID>"
+    bucket = "ecommerce-terraform-state-582604091743"
 
     # Path within the bucket where state is stored.
     # Pattern: environments/<env>/<stack>/terraform.tfstate

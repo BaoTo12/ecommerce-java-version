@@ -59,6 +59,7 @@ module "rds" {
   password = var.db_password
 }
 
+/*
 # MODULE: MSK (Amazon Managed Streaming for Apache Kafka)
 module "msk" {
   source = "../../modules/msk"
@@ -69,6 +70,7 @@ module "msk" {
   allowed_cidr_blocks = [var.vpc_cidr]
   environment         = var.environment
 }
+*/
 
 # MODULE: SECRETS MANAGER
 module "secrets" {

@@ -13,7 +13,6 @@
 variable "aws_region" {
   description = "AWS region to deploy all resources"
   type        = string
-  # BUG FIX: Original had "us-southeast-1" which is NOT a valid AWS region.
   # Valid Singapore region is "ap-southeast-1".
   default = "ap-southeast-1"
 }
@@ -68,9 +67,7 @@ variable "azs" {
   default = ["ap-southeast-1a", "ap-southeast-1b", "ap-southeast-1c"]
 }
 
-# ==============================================================================
 # EKS VARIABLES
-# ==============================================================================
 
 variable "cluster_name" {
   description = "Name of the EKS cluster"
@@ -78,14 +75,12 @@ variable "cluster_name" {
   default     = "ecommerce-eks"
 }
 
-# ==============================================================================
 # SERVICES — Database-per-Service configuration
 #
 # WHY use a map(object) here?
 # Instead of copy-pasting module blocks for each of 5 services, we define
 # them as data and use for_each in main.tf.
 # This makes adding a new service as simple as adding a new entry here.
-# ==============================================================================
 variable "services" {
   description = "Map of microservices with their individual database configuration"
   type = map(object({
@@ -135,7 +130,6 @@ variable "db_allocated_storage" {
   default     = 20
 }
 
-# ==============================================================================
 # SENSITIVE VARIABLES — These must NEVER have default values
 #
 # WHY no defaults?
@@ -144,7 +138,6 @@ variable "db_allocated_storage" {
 #   - terraform.tfvars (gitignored)
 #   - Environment variables: export TF_VAR_db_password="..."
 #   - CI/CD secrets: GitHub Actions secrets → env variable
-# ==============================================================================
 
 variable "db_password" {
   description = "Master password for all RDS instances. Must be at least 8 characters."

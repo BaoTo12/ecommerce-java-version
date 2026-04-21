@@ -5,7 +5,7 @@ resource "aws_db_instance" "main" {
   identifier = "${var.project_name}-${var.service_name}-db-${var.environment}"
   # Configuration for RDS
   engine            = "postgres"
-  engine_version    = "15.7"
+  engine_version    = "15"
   instance_class    = var.instance_class
   storage_type      = "gp3"
   allocated_storage = var.allocated_storage
@@ -23,8 +23,8 @@ resource "aws_db_instance" "main" {
 
   db_subnet_group_name = aws_db_subnet_group.main.name
 
-  # Automated backups — keep 7 days of point-in-time recovery
-  backup_retention_period = 7
+  # Automated backups — set to 1 for Free Tier compatibility
+  backup_retention_period = 1
   backup_window           = "03:00-04:00" # Singapore time = 10:00-11:00 UTC+7 (low traffic)
 
   # Maintenance window for minor version upgrades etc.
