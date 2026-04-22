@@ -1,20 +1,20 @@
 image:
-  repository: "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/inventory-service"
+  repository: "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/payment-service"
   tag: "main-a1b2c3d"
 
 service:
-  port: 8083
+  port: 8084
 
 serviceAccount:
   create: true
   annotations:
-    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/ecommerce-inventory-service-role"
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/ecommerce-payment-service-role"
 
 env:
   - name: SERVER_PORT
-    value: "8083"
+    value: "8084"
   - name: SPRING_DATASOURCE_URL
-    value: "jdbc:postgresql://ecommerce-inventory-service-db-prod.xxxx.ap-southeast-1.rds.amazonaws.com:5432/inventorydb"
+    value: "jdbc:postgresql://ecommerce-payment-service-db-prod.xxxx.ap-southeast-1.rds.amazonaws.com:5432/paymentdb"
   - name: SPRING_DATASOURCE_USERNAME
     valueFrom:
       secretKeyRef:
@@ -33,5 +33,5 @@ env:
 autoscaling:
   enabled: true
   minReplicas: 2
-  maxReplicas: 10
+  maxReplicas: 8
   targetCPUUtilizationPercentage: 70

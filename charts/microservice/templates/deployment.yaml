@@ -5,29 +5,85 @@ metadata:
   labels:
     {{- include "microservice.labels" . | nindent 4 }}
 spec:
+  # Only set replicas here if HPA is NOT enabled.
+  # If HPA is enabled, it controls the replica count — setting it here would
+  # conflict with HPA and cause constant scaling fights.
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
-  selector:
-    matchLabels:
-      {{- include "microservice.selectorLabels" . | nindent 6 }}
+  {{- end }}
+  selector: # This tells the Deployment controller: "Look for Pods that match these specific criteria."
+    matchLabels: # The criteria is a list of labels
+      {{- include "microservice.selectorLabels" . | nindent 6 }} # nindent: Inserts a new line. and Indents the text by 6 spaces.
+  
+  strategy: 
+    type: RollingUpdate
+    rollingUpdate: 
+      # maxUnavailable: how many pods can be down during update
+      # "0" = zero-downtime deployment (always keep all pods running)
+      maxUnavailable: 0
+      # maxSurge: how many extra pods can be created during update
+      # "1" = create one new pod first, drain traffic, then delete old pod
+      maxSurge: 1
+  
   template:
     metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
         {{- include "microservice.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "microservice.serviceAccountName" . }}
+      # Security context for the pod
+      # runAsNonRoot: prevents containers from running as root (security best practice)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+
           ports:
-            - name: http
+            - name: http           # ← "http" is referenced by livenessProbe/readinessProbe
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+
+          # Environment variables from values.<service>.yaml
+          # NOTE: For sensitive values, use External Secrets Operator to sync
+          # AWS Secrets Manager → Kubernetes Secret → env var
+          # See values/order-service.yaml for the secretRef pattern
+          {{- if .Values.env }}
           env:
             {{- toYaml .Values.env | nindent 12 }}
+          {{- end }}
+
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+
+          # Spring Boot Actuator health probes
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
+
+          # Lifecycle: graceful shutdown
+          # preStop sleep gives Kubernetes time to remove this pod from
+          # the load balancer BEFORE the app starts shutting down.
+          # Without this, in-flight requests get dropped during rolling updates.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+      # Topology spread: distribute pods across AZs for high availability
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              {{- include "microservice.selectorLabels" . | nindent 14 }}
+
+      terminationGracePeriodSeconds: 30

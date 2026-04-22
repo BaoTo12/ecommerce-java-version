@@ -10,9 +10,6 @@
 #   helm upgrade order-service charts/microservice \
 #     -f charts/values/order-service.yaml
 #
-# The per-service file only needs to define what's DIFFERENT from these defaults.
-# Everything not specified in the per-service file uses these defaults.
-# ==============================================================================
 
 # Number of pod replicas
 replicaCount: 2

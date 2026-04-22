@@ -1,15 +1,16 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "microservice.fullname" . }}
-  labels:
-    {{- include "microservice.labels" . | nindent 4 }}
+    name: { { include "microservice.fullname" . } }
+    labels: { { - include "microservice.labels" . | nindent 4 } }
 spec:
-  type: {{ .Values.service.type }}
-  ports:
-    - port: {{ .Values.service.port }}
-      targetPort: http
-      protocol: TCP
-      name: http
-  selector:
-    {{- include "microservice.selectorLabels" . | nindent 4 }}
+    # ClusterIP: internal-only service (default)
+    # Pods communicate with each other via: http://<service-name>:<port>
+    type: { { .Values.service.type } }
+    ports:
+        - port: { { .Values.service.port } }
+          targetPort: http # References the named port in the Deployment
+          protocol: TCP
+          name: http
+    # Traffic is sent only to pods matching these labels
+    selector: { { - include "microservice.selectorLabels" . | nindent 4 } }

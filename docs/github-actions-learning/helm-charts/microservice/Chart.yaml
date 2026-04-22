@@ -1,7 +1,7 @@
 apiVersion: v2
 name: microservice
 description: |
-  A reusable Helm chart for all ecommerce microservices.
+  A reusable Helm chart for all e-commerce microservices.
   One chart + different values files = DRY principle.
   Each service (order, payment, inventory, etc.) uses this same chart
   but with its own values file in charts/values/<service>.yaml.

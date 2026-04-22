@@ -1,27 +1,82 @@
-# values/order-service.yaml
+# ==============================================================================
+# ORDER-SERVICE — Helm Values Override
+#
+# This file OVERRIDES the defaults in charts/microservice/values.yaml.
+# Only specify what's different — everything else uses the defaults.
+#
+# How CI pipeline updates this file:
+#   yq e ".image.tag = \"main-a1b2c3d\"" -i charts/values/order-service.yaml
+#   yq e ".image.repository = \"123456789.dkr.ecr.ap-southeast-1.amazonaws.com/order-service\"" -i ...
+#   git commit → ArgoCD detects → deploys to EKS
+# ==============================================================================
+
 image:
-  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/order-service
-  tag: latest
+  # BUG FIX: Original had us-east-1. Must match deployment region: ap-southeast-1
+  repository: "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/order-service"
+  # BUG FIX: Original had "latest" — NEVER use latest.
+  # CI pipeline updates this to git SHA: "main-a1b2c3d"
+  tag: "main-a1b2c3d"
 
 service:
-  port: 8081
+  port: 8082  # order-service port
 
+serviceAccount:
+  create: true
+  annotations:
+    # IRSA: Give this pod AWS permissions via IAM role (from terraform iam module output)
+    # Replace with your actual IAM role ARN from: terraform output irsa_order_service
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/ecommerce-order-service-role"
+
+# ==============================================================================
+# ENVIRONMENT VARIABLES
+#
+# BUG FIX: Original had db password as plain text "secret".
+# Production approach: Use External Secrets Operator (ESO) to sync
+# AWS Secrets Manager → Kubernetes Secret → env var via secretKeyRef.
+#
+# With ESO installed, create an ExternalSecret resource (see argocd-learning/).
+# Here we use secretKeyRef to reference the synced Kubernetes secret.
+# ==============================================================================
 env:
-  - name: SPRING_DATASOURCE_URL
-    value: "jdbc:postgresql://ecommerce-db.xxxx.us-east-1.rds.amazonaws.com:5432/order_db"
-  - name: SPRING_DATASOURCE_USERNAME
-    value: "order_user"
-  - name: SPRING_DATASOURCE_PASSWORD
-    value: "secret"
-  - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
-    value: "msk-bootstrap:9092"
   - name: SERVER_PORT
-    value: "8081"
+    value: "8082"
+
+  - name: SPRING_DATASOURCE_URL
+    # Use RDS address from terraform output: terraform output rds_endpoints
+    value: "jdbc:postgresql://ecommerce-order-service-db-prod.xxxx.ap-southeast-1.rds.amazonaws.com:5432/orderdb"
+
+  - name: SPRING_DATASOURCE_USERNAME
+    valueFrom:
+      secretKeyRef:
+        # This Kubernetes secret is created by External Secrets Operator
+        # syncing from AWS Secrets Manager "ecommerce/prod/db-credentials"
+        name: ecommerce-db-credentials
+        key: username
+
+  - name: SPRING_DATASOURCE_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: ecommerce-db-credentials
+        key: password
+
+  - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+    # Use MSK bootstrap brokers from terraform output: terraform output msk_bootstrap_brokers
+    value: "b-1.ecommerce-msk.xxxx.kafka.ap-southeast-1.amazonaws.com:9092,b-2.xxxx:9092"
+
+  - name: JWT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: ecommerce-jwt-secret
+        key: jwt_secret
+
+  # Spring Boot profiles
+  - name: SPRING_PROFILES_ACTIVE
+    value: "prod"
 
 ingress:
   enabled: true
   hosts:
-    - host: order.ecommerce.com
+    - host: order.ecommerce.example.com
       paths:
         - path: /
           pathType: Prefix
@@ -30,3 +85,4 @@ autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 10
+  targetCPUUtilizationPercentage: 70

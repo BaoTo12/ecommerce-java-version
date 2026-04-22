@@ -1,20 +1,20 @@
 image:
-  repository: "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/inventory-service"
+  repository: "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/notification-service"
   tag: "main-a1b2c3d"
 
 service:
-  port: 8083
+  port: 8085
 
 serviceAccount:
   create: true
   annotations:
-    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/ecommerce-inventory-service-role"
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/ecommerce-notification-service-role"
 
 env:
   - name: SERVER_PORT
-    value: "8083"
+    value: "8085"
   - name: SPRING_DATASOURCE_URL
-    value: "jdbc:postgresql://ecommerce-inventory-service-db-prod.xxxx.ap-southeast-1.rds.amazonaws.com:5432/inventorydb"
+    value: "jdbc:postgresql://ecommerce-notification-service-db-prod.xxxx.ap-southeast-1.rds.amazonaws.com:5432/notificationdb"
   - name: SPRING_DATASOURCE_USERNAME
     valueFrom:
       secretKeyRef:
@@ -32,6 +32,6 @@ env:
 
 autoscaling:
   enabled: true
-  minReplicas: 2
-  maxReplicas: 10
+  minReplicas: 1
+  maxReplicas: 5
   targetCPUUtilizationPercentage: 70

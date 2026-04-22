@@ -1,57 +1,131 @@
 replicaCount: 2
-
 image:
+  # repository: overridden per service in values/<service>.yaml
+  # Format: <account_id>.dkr.ecr.<region>.amazonaws.com/<service-name>
   repository: ""
   pullPolicy: IfNotPresent
   tag: "latest"
 
-service:
-  type: ClusterIP
-  port: 8080
+# ! This is a list of Kubernetes Secrets used to authenticate when pulling container images
+imagePullSecrets: []
+# Overrides the chart name
+# Default behavior -> <release-name>-<chart-name>
+nameOverride: ""
+# Overrides the FULL generated name 
+# Normally -> {{ .Release.Name }}-{{ .Chart.Name }}
+fullnameOverride: ""
 
-ingress:
-  enabled: false
-  className: "alb" # AWS Load Balancer Controller
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-  hosts:
-    - host: ecommerce.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []
-
-resources:
-  limits:
-    cpu: 500m
-    memory: 512Mi
-  requests:
-    cpu: 200m
-    memory: 256Mi
-
-autoscaling:
-  enabled: false
-  minReplicas: 2
-  maxReplicas: 5
-  targetCPUUtilizationPercentage: 80
-
+# * SERVICE ACCOUNT — Required for IRSA
+#
+# The annotations field will be set per-service to include the IAM role ARN.
+# This is how IRSA works: the ServiceAccount annotation tells the EKS
+# pod identity webhook to inject AWS credentials for that IAM role.
+#
+# Example (set in values/<service>.yaml):
+#   serviceAccount:
+#     annotations:
+#       eks.amazonaws.com/role-arn: arn:aws:iam::123456789:role/order-service-role
 serviceAccount:
   create: true
+  automount: true
   annotations: {}
+  name: ""
 
-env: []
+service:
+  type: ClusterIP
+  port: 80
 
-# Liveness and Readiness probes for Spring Boot Actuator
+ingress:
+  enabled: false # by default ingress is internal, set to true --> external communication
+  className: ""
+  annotations: 
+    # "internet-facing" = public ALB. Use "internal" for internal-only services.
+    # Creates a Public ALB with a public DNS name.
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # The ALB sends traffic directly to the Pod's IP address.
+    alb.ingress.kubernetes.io/target-type: ip
+    # Tells the ALB to open both Port 80 (HTTP) and Port 443 (HTTPS).
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    # If a user types http://ecommerce.example.com, the ALB will automatically force them to use https://ecommerce.example.com.
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # The AWS Controller will see the same group name and "merge" them into one single ALB.
+    # Don't worry to have ingress for each microservice
+    alb.ingress.kubernetes.io/group.name: "my-ecommerce-app"
+  hosts:
+      # The ALB will only process requests that match this specific domain name
+      # If you don't have a domain, you can technically leave host empty, and the ALB will respond to its own auto-generated DNS name
+    - host:
+      paths:
+        # This service will handle all traffic starting from the root URL.
+        - path: /
+          # This means any sub-path (like /products or /login) will also be sent to this service unless a more specific rule exists.
+          pathType: Prefix
+  tls: []
+  
+# -- Expose the service via gateway-api HTTPRoute
+httpRoute:
+  enabled: false
+  annotations: {}
+  parentRefs:
+  - name: gateway
+    sectionName: http
+  hostnames:
+  - chart-example.local
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /headers
+
+resources: {}
+
+# HEALTH PROBES — Spring Boot Actuator
+# livenessProbe:  Is the process alive? If this fails, pod is restarted.
+# readinessProbe: Is the pod ready to receive traffic? If this fails,
+#                 pod is removed from service endpoints (no traffic sent).
+# WHY 60s initialDelaySeconds?
+# Spring Boot with JPA + Flyway takes ~30-45s to start.
+# If probes start too early, Kubernetes kills the pod before it finishes starting.
 livenessProbe:
   httpGet:
     path: /actuator/health/liveness
     port: http
-  initialDelaySeconds: 30
-  periodSeconds: 10
+  initialDelaySeconds: 60
+  periodSeconds: 15
+  failureThreshold: 3
+
 readinessProbe:
   httpGet:
     path: /actuator/health/readiness
     port: http
-  initialDelaySeconds: 30
+  initialDelaySeconds: 60
   periodSeconds: 10
+  failureThreshold: 3
+
+# AUTOSCALING (HPA — HorizontalPodAutoscaler)
+# When CPU > 70%, Kubernetes automatically adds more pods (up to maxReplicas).
+# When CPU drops, it scales back down (after stabilization window).
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+  # - name: foo
+  #   secret:
+  #     secretName: mysecret
+  #     optional: false
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+  # - name: foo
+  #   mountPath: "/etc/foo"
+  #   readOnly: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
