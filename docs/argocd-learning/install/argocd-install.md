@@ -116,6 +116,15 @@ helm install external-secrets external-secrets/external-secrets \
   -n external-secrets-system \
   --create-namespace \
   --set installCRDs=true
+
+# 3. Associate IAM Role (IRSA) — CRITICAL for AWS access
+# After running 'terraform apply' to create the role, annotate the ServiceAccount:
+kubectl annotate serviceaccount external-secrets \
+  -n external-secrets-system \
+  eks.amazonaws.com/role-arn=arn:aws:iam::<YOUR_ACCOUNT_ID>:role/ecommerce-external-secrets-role
+
+# 4. Restart the operator to pick up the new role
+kubectl rollout restart deployment external-secrets -n external-secrets-system
 ```
 
 ## Step 6 — Verify
