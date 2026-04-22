@@ -1,5 +1,5 @@
 image:
-  repository: "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/user-service"
+  repository: "582604091743.dkr.ecr.ap-southeast-1.amazonaws.com/user-service"
   tag: "main-a1b2c3d"
 
 service:
@@ -8,7 +8,7 @@ service:
 serviceAccount:
   create: true
   annotations:
-    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/ecommerce-user-service-role"
+    eks.amazonaws.com/role-arn: "arn:aws:iam::582604091743:role/ecommerce-user-service-role"
 
 env:
   - name: SERVER_PORT

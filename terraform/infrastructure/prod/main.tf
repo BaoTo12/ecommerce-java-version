@@ -23,7 +23,7 @@ module "eks" {
   desired_capacity         = 2
   max_capacity             = 4
   min_capacity             = 2
-  instance_types           = ["t3.medium"]
+  instance_types           = ["t3.micro"]
 }
 
 # MODULE: ECR 
@@ -133,3 +133,4 @@ module "irsa" {
     ]
   })
 }
+

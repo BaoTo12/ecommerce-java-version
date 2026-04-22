@@ -1,3 +1,32 @@
+Kết nối Local Machine → EKS trên AWS
+Vấn đề cốt lõi
+Local machine (kubectl) ──► ??? ──► EKS API Server (AWS Cloud)
+
+kubectl đọc file ~/.kube/config để biết cluster endpoint + credentials. File này chưa có → mọi lệnh đều fail.
+
+```
+aws eks update-kubeconfig \
+  --region ap-southeast-1 \
+  --name <tên-eks-cluster-của-bạn>
+```
+Lệnh này tự động ghi vào ~/.kube/config:
+
+Cluster endpoint
+CA certificate
+Auth token mechanism (dùng AWS IAM)
+
+
+Step 4: Verify kết nối
+
+# Test cơ bản
+kubectl cluster-info
+
+# Phải thấy:
+# Kubernetes control plane is running at https://XXXX.gr7.ap-southeast-1.eks.amazonaws.com
+
+kubectl get nodes
+# Phải thấy nodes ở status Ready
+
 # How to Install ArgoCD on EKS
 
 ## Step 1 — Install ArgoCD

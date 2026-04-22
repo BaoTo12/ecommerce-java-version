@@ -12,7 +12,7 @@
 
 image:
   # BUG FIX: Original had us-east-1. Must match deployment region: ap-southeast-1
-  repository: "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/order-service"
+  repository: "582604091743.dkr.ecr.ap-southeast-1.amazonaws.com/order-service"
   # BUG FIX: Original had "latest" — NEVER use latest.
   # CI pipeline updates this to git SHA: "main-a1b2c3d"
   tag: "main-a1b2c3d"
@@ -25,7 +25,7 @@ serviceAccount:
   annotations:
     # IRSA: Give this pod AWS permissions via IAM role (from terraform iam module output)
     # Replace with your actual IAM role ARN from: terraform output irsa_order_service
-    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/ecommerce-order-service-role"
+    eks.amazonaws.com/role-arn: "arn:aws:iam::582604091743:role/ecommerce-order-service-role"
 
 # ==============================================================================
 # ENVIRONMENT VARIABLES

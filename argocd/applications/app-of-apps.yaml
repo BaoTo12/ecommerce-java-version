@@ -1,0 +1,34 @@
+# APP-OF-APPS — Root Application
+# This is the single Application you create MANUALLY (once).
+# After this, ArgoCD manages everything else — even the other Applications.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecommerce-root
+  namespace: argocd 
+  # finalizer: When you delete this Application, ArgoCD also deletes all
+  finalizers:
+    - resources-finalizer-argocd.argoproj.io
+
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/BaoTo12/ecommerce-java-version.git
+    # Track HEAD of main branch. In production, consider tracking a specific tag.
+    targetRevision: HEAD 
+    # This folder contains all the child Application manifests
+    path: argocd/applications
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true # Delete Applications removed from git
+      selfHeal: true  # Revert manual changes to Applications
+    syncOptions:
+      - CreateNamespace=true
+
+
