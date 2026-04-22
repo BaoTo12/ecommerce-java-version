@@ -1,15 +1,12 @@
 image:
   repository: "582604091743.dkr.ecr.ap-southeast-1.amazonaws.com/user-service"
-  tag: "main-a1b2c3d"
-
+  tag: "main-dafcfe1"
 service:
   port: 8081
-
 serviceAccount:
   create: true
   annotations:
     eks.amazonaws.com/role-arn: "arn:aws:iam::582604091743:role/ecommerce-user-service-role"
-
 env:
   - name: SERVER_PORT
     value: "8081"
@@ -32,7 +29,6 @@ env:
         key: jwt_secret
   - name: SPRING_PROFILES_ACTIVE
     value: "prod"
-
 ingress:
   enabled: true
   hosts:
@@ -40,7 +36,6 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
-
 autoscaling:
   enabled: true
   minReplicas: 2
