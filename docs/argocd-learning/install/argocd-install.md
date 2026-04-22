@@ -7,7 +7,7 @@ Assume we are on local machine so how to connect to EKS on AWS
 
 - kubectl đọc file ~/.kube/config để biết cluster endpoint + credentials. - File này chưa có → mọi lệnh đều fail.
 
-```
+```bash
 aws eks update-kubeconfig --region ap-southeast-1 --name <tên-eks-cluster-của-bạn>
 ```
 
@@ -30,12 +30,14 @@ aws eks update-kubeconfig --region ap-southeast-1 --name <tên-eks-cluster-của
 
 #### Step 1 — Install ArgoCD
 
+**NOTE:** ArgoCD manifests are very large. Always use `--server-side` to avoid "annotation too long" errors.
+
 ```bash
 # Create dedicated namespace
 kubectl create namespace argocd
 
 # Install ArgoCD using official manifests
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply --server-side -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
 # Wait for all pods to be ready (~2 minutes)
 kubectl wait --for=condition=Ready pods --all -n argocd --timeout=300s
@@ -58,8 +60,13 @@ kubectl get svc argocd-server -n argocd  # Wait for EXTERNAL-IP
 
 ```bash
 # ArgoCD generates a random password stored in a secret
-kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath="{.data.password}" | base64 -d && echo
+
+# Bash (Linux/Mac)
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
+
+# PowerShell (Windows)
+$pw = kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}"
+[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($pw))
 
 # Login with username: admin, password: <above>
 ```
@@ -77,7 +84,11 @@ argocd login localhost:8080 --username admin --password <your-password> --insecu
 # ArgoCD uses https://kubernetes.default.svc to refer to the local cluster
 ```
 
-## Step 5 — Bootstrap App-of-Apps
+## Step 5 — Bootstrap App-of-Apps - The "App-of-Apps" phase is for Automation and Centralized Management.
+
+By applying the app-of-apps.yaml just once, you tell ArgoCD: "Stop listening to me (the human) and start listening to this specific folder
+in Git."
+in short, when we create application for argoCD, it will know move to watch the git repo we configure ?
 
 ```bash
 # This one command creates ALL Application resources
@@ -91,6 +102,22 @@ kubectl apply -f argocd/applications/app-of-apps.yaml
 # - notification-service Application
 ```
 
+### Install External Secrets Operator (Required for Database Secrets)
+
+**Note:** You must add the Helm repo before installing the chart.
+
+```bash
+# 1. Add the Helm repository
+helm repo add external-secrets https://charts.external-secrets.io
+helm repo update
+
+# 2. Install the operator
+helm install external-secrets external-secrets/external-secrets \
+  -n external-secrets-system \
+  --create-namespace \
+  --set installCRDs=true
+```
+
 ## Step 6 — Verify
 
 ```bash
@@ -102,6 +129,10 @@ argocd app get order-service
 
 # Manually trigger sync (if not using automated sync)
 argocd app sync order-service
+
+# Check pods and secrets
+kubectl get pods
+kubectl get secrets
 ```
 
 ## Useful ArgoCD CLI Commands
