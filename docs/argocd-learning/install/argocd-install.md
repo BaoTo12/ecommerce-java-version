@@ -1,35 +1,36 @@
-Kết nối Local Machine → EKS trên AWS
-Vấn đề cốt lõi
-Local machine (kubectl) ──► ??? ──► EKS API Server (AWS Cloud)
+### How to install ArgoCD on AWS EKS
 
-kubectl đọc file ~/.kube/config để biết cluster endpoint + credentials. File này chưa có → mọi lệnh đều fail.
+EKS is running on AWS (infrastructure is find)
+Assume we are on local machine so how to connect to EKS on AWS
+
+> Local machine (kubectl) ──► ??? ──► EKS API Server (AWS Cloud)
+
+- kubectl đọc file ~/.kube/config để biết cluster endpoint + credentials. - File này chưa có → mọi lệnh đều fail.
 
 ```
 aws eks update-kubeconfig \
   --region ap-southeast-1 \
   --name <tên-eks-cluster-của-bạn>
 ```
-Lệnh này tự động ghi vào ~/.kube/config:
 
-Cluster endpoint
-CA certificate
-Auth token mechanism (dùng AWS IAM)
+--> Lệnh này tự động ghi vào ~/.kube/config:
 
+- Cluster endpoint
+- CA certificate
+- Auth token mechanism (dùng AWS IAM)
 
-Step 4: Verify kết nối
+### Verify kết nối
 
-# Test cơ bản
-kubectl cluster-info
+- kubectl cluster-info
+    > Kubernetes control plane is running at https://XXXX.gr7.ap-southeast-1.eks.amazonaws.com
 
-# Phải thấy:
-# Kubernetes control plane is running at https://XXXX.gr7.ap-southeast-1.eks.amazonaws.com
+> kubectl get nodes
+> -> This commands show nodes are running on that cluster
+> -> Phải thấy nodes ở status Ready
 
-kubectl get nodes
-# Phải thấy nodes ở status Ready
+### How to Install ArgoCD on EKS
 
-# How to Install ArgoCD on EKS
-
-## Step 1 — Install ArgoCD
+#### Step 1 — Install ArgoCD
 
 ```bash
 # Create dedicated namespace
@@ -133,11 +134,3 @@ By default ArgoCD polls Git every 3 minutes. For faster sync:
 3. Content type: `application/json`
 4. Secret: generate a random string, save it
 5. Events: Just the "push" event
-
-In ArgoCD, set the webhook secret:
-```bash
-kubectl -n argocd patch secret argocd-secret \
-  -p '{"stringData": {"webhook.github.secret": "<your-webhook-secret>"}}'
-```
-
-Now ArgoCD syncs within seconds of a git push instead of waiting up to 3 minutes.
