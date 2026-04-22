@@ -23,7 +23,7 @@ module "eks" {
   desired_capacity         = 2
   max_capacity             = 4
   min_capacity             = 2
-  instance_types           = ["t3.micro"]
+  instance_types           = ["t2.micro"]
 }
 
 # MODULE: ECR 
