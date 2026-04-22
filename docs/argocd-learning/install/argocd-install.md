@@ -8,9 +8,7 @@ Assume we are on local machine so how to connect to EKS on AWS
 - kubectl đọc file ~/.kube/config để biết cluster endpoint + credentials. - File này chưa có → mọi lệnh đều fail.
 
 ```
-aws eks update-kubeconfig \
-  --region ap-southeast-1 \
-  --name <tên-eks-cluster-của-bạn>
+aws eks update-kubeconfig --region ap-southeast-1 --name <tên-eks-cluster-của-bạn>
 ```
 
 --> Lệnh này tự động ghi vào ~/.kube/config:
@@ -83,7 +81,7 @@ argocd login localhost:8080 --username admin --password <your-password> --insecu
 
 ```bash
 # This one command creates ALL Application resources
-kubectl apply -f argocd-learning/applications/app-of-apps.yaml
+kubectl apply -f argocd/applications/app-of-apps.yaml
 
 # ArgoCD will discover and create:
 # - order-service Application
