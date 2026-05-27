@@ -1,7 +1,6 @@
 -- V1__bootstrap_order_db.sql
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
 -- Product catalog
 CREATE TABLE product_catalog (
     id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -144,3 +143,134 @@ CREATE TABLE order_read_model (
 );
 CREATE INDEX idx_order_read_model_user_updated ON order_read_model(user_id, updated_at DESC);
 CREATE INDEX idx_order_read_model_status_updated ON order_read_model(status, updated_at DESC);
+
+INSERT INTO product_catalog (id, sku, name, description, price) VALUES
+                                                                    ('a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d', 'PHONE-IP15', 'iPhone 15 Pro Max', 'Apple iPhone 15 Pro Max 256GB', 34990000.00),
+                                                                    ('b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e', 'PHONE-SS24', 'Samsung Galaxy S24 Ultra', 'Samsung Galaxy S24 Ultra 512GB', 31990000.00),
+                                                                    ('c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f', 'LAPTOP-MBP', 'MacBook Pro 14"', 'Apple MacBook Pro 14-inch M3 Pro', 49990000.00),
+                                                                    ('d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a', 'HEADPHONE-APM', 'AirPods Max', 'Apple AirPods Max - Space Gray', 13490000.00),
+                                                                    ('e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a9b', 'TABLET-IPD', 'iPad Pro 12.9"', 'Apple iPad Pro 12.9-inch M2 256GB', 28990000.00);
+
+
+CREATE TABLE idempotency_keys (
+                                  key             VARCHAR(255)    PRIMARY KEY,
+                                  created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+
+
+CREATE TABLE notifications (
+                               id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+                               order_id        UUID            NOT NULL,
+                               user_id         UUID            NOT NULL,
+                               type            VARCHAR(30)     NOT NULL,
+                               recipient_email VARCHAR(255)    NOT NULL,
+                               subject         VARCHAR(500)    NOT NULL,
+                               status          VARCHAR(10)     NOT NULL DEFAULT 'PENDING',
+                               retry_count     INT             NOT NULL DEFAULT 0,
+                               last_error      TEXT,
+                               sent_at         TIMESTAMPTZ,
+                               created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+                               updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+                               CONSTRAINT chk_notifications_type   CHECK (type IN ('ORDER_CONFIRMED','ORDER_COMPLETED','ORDER_CANCELLED','PAYMENT_FAILED')),
+                               CONSTRAINT chk_notifications_status CHECK (status IN ('PENDING','SENT','FAILED')),
+                               CONSTRAINT uq_notifications_order_type UNIQUE (order_id, type)
+);
+
+CREATE INDEX idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX idx_notifications_status_pending ON notifications(created_at ASC) WHERE status = 'PENDING';
+CREATE INDEX idx_notifications_order_created ON notifications(order_id, created_at DESC);
+
+
+
+CREATE TABLE inventory (
+                           product_id  UUID        PRIMARY KEY,
+                           quantity    INT         NOT NULL,
+                           version     BIGINT      NOT NULL DEFAULT 0,
+                           created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                           updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                           CONSTRAINT chk_inventory_quantity CHECK (quantity >= 0)
+);
+
+CREATE INDEX idx_inventory_low_stock ON inventory(quantity) WHERE quantity < 10;
+
+CREATE TABLE inventory_reservations (
+                                        id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+                                        order_id        UUID        NOT NULL,
+                                        product_id      UUID        NOT NULL REFERENCES inventory(product_id),
+                                        quantity        INT         NOT NULL,
+                                        operation       VARCHAR(10) NOT NULL,
+                                        status          VARCHAR(10) NOT NULL,
+                                        failure_reason  TEXT,
+                                        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                                        CONSTRAINT chk_reservation_quantity  CHECK (quantity > 0),
+                                        CONSTRAINT chk_reservation_operation CHECK (operation IN ('RESERVE', 'RELEASE')),
+                                        CONSTRAINT chk_reservation_status    CHECK (status IN ('SUCCESS', 'FAILED'))
+);
+
+CREATE INDEX idx_reservations_order_id   ON inventory_reservations(order_id);
+CREATE INDEX idx_reservations_product_id ON inventory_reservations(product_id);
+CREATE INDEX idx_reservations_failed     ON inventory_reservations(created_at DESC) WHERE status = 'FAILED';
+
+
+INSERT INTO inventory (product_id, quantity) VALUES
+                                                 ('a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d', 50),  -- iPhone 15 Pro Max
+                                                 ('b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e', 30),  -- Samsung Galaxy S24 Ultra
+                                                 ('c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f', 20),  -- MacBook Pro 14"
+                                                 ('d4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a', 100), -- AirPods Max
+                                                 ('e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a9b', 40);  -- iPad Pro 12.9"
+
+
+CREATE TABLE payments (
+                          id                      UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+                          order_id                UUID            NOT NULL UNIQUE,
+                          user_id                 UUID            NOT NULL,
+                          amount                  NUMERIC(15,2)   NOT NULL,
+                          status                  VARCHAR(20)     NOT NULL,
+                          gateway_transaction_id  VARCHAR(255),
+                          failure_reason          TEXT,
+                          refund_reason           TEXT,
+                          created_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+                          updated_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+                          CONSTRAINT chk_payments_amount CHECK (amount > 0),
+                          CONSTRAINT chk_payments_status CHECK (status IN (
+                                                                           'PENDING','CHARGED','FAILED','REFUND_REQUESTED','REFUNDED','REFUND_FAILED'
+                              ))
+);
+
+CREATE INDEX idx_payments_user_id ON payments(user_id);
+CREATE INDEX idx_payments_status_failed ON payments(created_at DESC)
+    WHERE status IN ('FAILED','REFUND_FAILED');
+
+
+CREATE TABLE users (
+                       id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+                       email           VARCHAR(255)    NOT NULL UNIQUE,
+                       password_hash   VARCHAR(255)    NOT NULL,
+                       name            VARCHAR(255)    NOT NULL,
+                       phone           VARCHAR(20),
+                       is_active       BOOLEAN         NOT NULL DEFAULT TRUE,
+                       created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+                       updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_active ON users(is_active) WHERE is_active = TRUE;
+
+-- Addresses table for user shipping/billing addresses
+CREATE TABLE user_addresses (
+                                id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+                                user_id         UUID            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                                label           VARCHAR(50)     NOT NULL DEFAULT 'Home',
+                                address_line1   VARCHAR(255)    NOT NULL,
+                                address_line2   VARCHAR(255),
+                                city            VARCHAR(100)    NOT NULL,
+                                state           VARCHAR(100),
+                                postal_code     VARCHAR(20)     NOT NULL,
+                                country         VARCHAR(100)    NOT NULL DEFAULT 'Vietnam',
+                                is_default      BOOLEAN         NOT NULL DEFAULT FALSE,
+                                created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+                                updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_user_addresses_user_id ON user_addresses(user_id);
