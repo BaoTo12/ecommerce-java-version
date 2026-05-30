@@ -35,6 +35,12 @@ public class UserEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "token_version", nullable = false)
+    private int tokenVersion = 0;
+
+    @Column(nullable = false, length = 255)
+    private String roles = "ROLE_USER";
+
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<UserAddressEntity> addresses = new ArrayList<>();
 
@@ -45,6 +51,8 @@ public class UserEntity {
         u.email = email;
         u.passwordHash = passwordHash;
         u.isActive = true;
+        u.tokenVersion = 0;
+        u.roles = "ROLE_USER";
         u.createdAt = Instant.now();
         u.updatedAt = Instant.now();
         return u;
@@ -61,6 +69,11 @@ public class UserEntity {
         this.updatedAt = Instant.now();
     }
 
+    public void incrementTokenVersion() {
+        this.tokenVersion++;
+        this.updatedAt = Instant.now();
+    }
+
     // --- Getters ---
     public UUID getId() { return id; }
     public String getEmail() { return email; }
@@ -68,6 +81,8 @@ public class UserEntity {
     public String getName() { return name; }
     public String getPhone() { return phone; }
     public boolean isActive() { return isActive; }
+    public int getTokenVersion() { return tokenVersion; }
+    public String getRoles() { return roles; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public List<UserAddressEntity> getAddresses() { return addresses; }

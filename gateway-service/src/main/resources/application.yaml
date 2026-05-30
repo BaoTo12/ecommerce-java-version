@@ -7,29 +7,28 @@ spring:
   cloud:
     gateway:
       routes:
-        # ── Auth Service (public — no token required) ──────────────────────────
+        # ── Auth & User Service (port 8085) ────────────────────────────────────
         - id: auth-service
-          uri: http://auth-service:8081
+          uri: http://user-service:8085
           predicates:
             - Path=/auth/**
 
-        # ── Order Service ──────────────────────────────────────────────────────
-        - id: order-service
-          uri: http://order-service:8082
-          predicates:
-            - Path=/orders/**
-
-        # ── Product Service ────────────────────────────────────────────────────
-        - id: product-service
-          uri: http://product-service:8083
-          predicates:
-            - Path=/products/**
-
-        # ── User Service ───────────────────────────────────────────────────────
         - id: user-service
-          uri: http://user-service:8084
+          uri: http://user-service:8085
           predicates:
             - Path=/users/**
+
+        # ── Order Service (port 8081) ──────────────────────────────────────────
+        - id: order-service
+          uri: http://order-service:8081
+          predicates:
+            - Path=/orders/**, /cart/**, /checkout/**, /catalog/**
+
+        # ── Inventory Service (port 8082) ──────────────────────────────────────
+        - id: inventory-service
+          uri: http://inventory-service:8082
+          predicates:
+            - Path=/inventory/**
 
       # Global CORS — adjust origins for production
       globalcors:

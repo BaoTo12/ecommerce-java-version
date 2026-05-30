@@ -41,10 +41,6 @@ management:
     health:
       show-details: always
 
-app:
-  jwt:
-    secret: ecommerce-super-secret-key-that-is-at-least-256-bits-long-for-hs256
-    expiration-ms: 86400000
   notification:
     max-retry: 3
 

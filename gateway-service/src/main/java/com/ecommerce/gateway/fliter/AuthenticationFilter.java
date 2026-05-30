@@ -21,7 +21,6 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 import java.util.stream.Collectors;
 
-
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -38,20 +37,29 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
             "/swagger-ui/**"
     );
 
-
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        String path = exchange.getRequest().getURI().getPath();
+        // Strip client forged headers unconditionally
+        ServerHttpRequest cleanRequest = exchange.getRequest().mutate()
+                .headers(header -> {
+                    header.remove("X-User-Id");
+                    header.remove("X-User-Roles");
+                    header.remove("X-User-Token-Version");
+                })
+                .build();
+        ServerWebExchange cleanExchange = exchange.mutate().request(cleanRequest).build();
+
+        String path = cleanRequest.getURI().getPath();
         // ! is Public
         if (isPublicRoute(path)) {
-            return chain.filter(exchange);
+            return chain.filter(cleanExchange);
         }
 
         // ! extract token
-        String token = extractToken(exchange.getRequest());
+        String token = extractToken(cleanRequest);
         if (token == null){
             log.debug("No Bearer token on request to {}", path);
-            return respondWith(exchange, HttpStatus.BAD_REQUEST, "Missing token");
+            return respondWith(cleanExchange, HttpStatus.BAD_REQUEST, "Missing token");
         }
 
         // ! Validate Token
@@ -60,16 +68,14 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
              claims = jwtValidator.validateAndExtract(token);
         }catch (ExpiredJwtException e){
             log.debug("Expired token on request to {}", path);
-            return respondWith(exchange, HttpStatus.UNAUTHORIZED, "Token expired");
+            return respondWith(cleanExchange, HttpStatus.UNAUTHORIZED, "Token expired");
         } catch (JwtException e){
             log.warn("Invalid token on request to {}: {}", path, e.getMessage());
-            return respondWith(exchange, HttpStatus.UNAUTHORIZED, "Invalid token");
+            return respondWith(cleanExchange, HttpStatus.UNAUTHORIZED, "Invalid token");
         }
-
 
         // ! Add Necessary headers to request and forward downstream
         Object rolesClaim = claims.get("roles");
-
         if (!(rolesClaim instanceof List<?> rolesList)) {
             throw new RuntimeException("Invalid roles claim");
         }
@@ -79,26 +85,24 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
                 .map(String.class::cast)
                 .collect(Collectors.joining(","));
 
-        ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
-                .headers(header -> {
-                    header.remove("X-User-Id");
-                    header.remove("X-User-Roles");
-                })
+        Object tokenVersionClaim = claims.get("token_version");
+        String tokenVersion = tokenVersionClaim != null ? String.valueOf(tokenVersionClaim) : "0";
+
+        ServerHttpRequest mutatedRequest = cleanRequest.mutate()
                 .header("X-User-Id", claims.getSubject())
                 .header("X-User-Roles", roles)
+                .header("X-User-Token-Version", tokenVersion)
                 .build();
 
-        log.debug("Authenticated userId={} roles={} → {}", claims.getSubject(), roles, path);
+        log.debug("Authenticated userId={} roles={} version={} → {}", claims.getSubject(), roles, tokenVersion, path);
 
-
-        return chain.filter(exchange.mutate().request(mutatedRequest).build());
+        return chain.filter(cleanExchange.mutate().request(mutatedRequest).build());
     }
 
     @Override
     public int getOrder() {
         return -1;
     }
-
 
     private boolean isPublicRoute(String path) {
         return PUBLIC_ROUTES.stream().anyMatch(route -> pathMatcher.match(route, path));
