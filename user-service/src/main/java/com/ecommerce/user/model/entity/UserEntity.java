@@ -40,11 +40,10 @@ public class UserEntity {
 
     protected UserEntity() {}
 
-    public static UserEntity create(String email, String passwordHash, String name) {
+    public static UserEntity create(String email, String passwordHash) {
         UserEntity u = new UserEntity();
         u.email = email;
         u.passwordHash = passwordHash;
-        u.name = name;
         u.isActive = true;
         u.createdAt = Instant.now();
         u.updatedAt = Instant.now();

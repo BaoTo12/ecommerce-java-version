@@ -34,7 +34,7 @@ public class AuthService {
         }
 
         String hash = passwordEncoder.encode(req.password());
-        UserEntity user = UserEntity.create(req.email(), hash, req.name());
+        UserEntity user = UserEntity.create(req.email(), hash);
         userRepo.save(user);
 
         String token = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getName());

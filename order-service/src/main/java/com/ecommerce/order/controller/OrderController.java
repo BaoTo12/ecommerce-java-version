@@ -26,6 +26,13 @@ public class OrderController {
         return ResponseEntity.status(HttpStatus.CREATED).body(orderService.createOrder(req));
     }
 
+    @GetMapping
+    public ResponseEntity<org.springframework.data.domain.Page<OrderResponse>> listOrders(
+            @RequestParam UUID userId,
+            @org.springframework.data.web.PageableDefault(size = 20) org.springframework.data.domain.Pageable pageable) {
+        return ResponseEntity.ok(orderService.listOrders(userId, pageable));
+    }
+
     @GetMapping("/{orderId}")
     public ResponseEntity<OrderResponse> getOrder(@PathVariable UUID orderId) {
         return ResponseEntity.ok(orderService.getOrder(orderId));

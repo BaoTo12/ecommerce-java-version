@@ -73,6 +73,11 @@ public class OrderService {
                 return toResponse(order);
         }
 
+        @Transactional(readOnly = true)
+        public org.springframework.data.domain.Page<OrderResponse> listOrders(UUID userId, org.springframework.data.domain.Pageable pageable) {
+                return orderRepo.findByUserId(userId, pageable).map(this::toResponse);
+        }
+
         public void cancelOrder(UUID orderId) {
                 OrderEntity order = orderRepo.findById(orderId)
                                 .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
