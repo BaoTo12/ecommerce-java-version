@@ -193,7 +193,6 @@ CREATE TABLE payments (
     -- Edge Case #10: Status machine: PENDING → CHARGED → REFUNDED (terminal)
     status                  VARCHAR(30) NOT NULL DEFAULT 'PENDING',
 
-    gateway_transaction_id  VARCHAR(100),
     failure_reason          VARCHAR(500),
     refund_reason           VARCHAR(500),
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),

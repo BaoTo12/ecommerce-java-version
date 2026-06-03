@@ -54,7 +54,7 @@ CREATE INDEX idx_coupon_usage_order ON coupon_usages(order_id);
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE dead_letter_messages (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    original_outbox_id  UUID NOT NULL,
+    original_outbox_id  UUID NOT NULL REFERENCES outbox_messages(id),
     event_type          VARCHAR(100) NOT NULL,
     aggregate_id        VARCHAR(100) NOT NULL,
     payload             TEXT NOT NULL,

