@@ -1,0 +1,155 @@
+server:
+  port: 8080
+  # Edge Case #19: Graceful Shutdown
+  # Waits for in-flight requests to complete before stopping
+  shutdown: graceful
+
+  # Edge Case #28 — Large Payload Protection:
+  # A malicious or buggy client could send a 500MB JSON body.
+  # Without this limit, a single request can exhaust heap memory,
+  # causing OOM and crashing the entire JVM (all users affected).
+  # 2MB is generous for any legitimate e-commerce request.
+  max-http-request-header-size: 16KB
+  tomcat:
+    max-swallow-size: 2MB
+
+spring:
+  application:
+    name: ecommerce-monolith
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+  # Edge Case #28 — Large Payload Protection (Spring MVC layer)
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 10MB
+
+  # Edge Case #27 — Always UTC / Clock Safety:
+  # Force Jackson to serialize/deserialize all dates as UTC ISO-8601.
+  # Never use LocalDateTime for stored timestamps — it has no timezone info.
+  # All entities use java.time.Instant (epoch nanos, UTC by definition).
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    time-zone: UTC
+
+  # Single shared database — replaces 5 separate DBs
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ecommerce_db
+    username: ecommerce_user
+    password: secret
+    hikari:
+      # Edge Case #24 — Connection Pool Exhaustion:
+      # Root cause: long-running transactions hold connections while
+      # waiting for external calls (payment gateway, email SMTP).
+      # If all 20 connections are held → new requests queue at Hikari
+      # → queue fills up → connectionTimeout exceeded → requests fail with
+      # "Unable to acquire JDBC Connection" (HTTP 503 effectively).
+      #
+      # Mitigations:
+      # 1. connection-timeout: fail fast (30s → 3s) so the user gets an error
+      #    rather than hanging. A fast 503 is better than a 30-second hang.
+      # 2. max-pool-size: sized for the expected concurrent transactions.
+      #    Rule of thumb: (num_cores * 2) + effective_spindle_count
+      # 3. leak-detection-threshold: log a warning if a connection is held
+      #    longer than 10s — this detects long transactions in production.
+      # 4. Transactions must never make external HTTP calls while holding
+      #    a DB connection. External calls go AFTER committing.
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 3000         # 3 seconds — fail fast, don't hang users
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 10000  # Warn if connection held > 10 seconds
+      connection-test-query: SELECT 1
+      pool-name: EcommerceHikariPool
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false          # Never enable — holds connections for the entire request
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        # Edge Case #23 — N+1 Prevention: enable statistics in dev to detect N+1 problems
+        generate_statistics: false   # set true in dev to see query counts
+        jdbc.batch_size: 25
+        order_inserts: true
+        order_updates: true
+        # Edge Case #27 — Clock Safety: ensure Hibernate stores Instant as UTC in DB
+        jdbc.time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,loggers
+  endpoint:
+    health:
+      show-details: always
+
+app:
+  jwt:
+    # Edge Case #15: token version in JWT
+    secret: T8527G5bvpx172miHv-Q5cDB8fs3cxW9AlmbifI5RKk-must-be-at-least-256-bits-long
+    access-expiration-ms: 900000        # 15 minutes
+    refresh-expiration-ms: 604800000    # 7 days
+
+  # Edge Case #5: Inventory reservation TTL
+  inventory:
+    reservation-ttl-minutes: 30
+    reservation-expiry-check-cron: "0 */5 * * * *"   # every 5 minutes
+
+  # Edge Case #2: Optimistic lock retry
+  retry:
+    max-attempts: 3
+    backoff-ms: 50
+
+  # Edge Case #11: Outbox poller
+  outbox:
+    poll-interval-ms: 500
+    batch-size: 50
+    max-retry: 5
+    # Edge Case #26 — Dead Letter: move to DLQ after max-retry exhausted
+    dead-letter-alert-threshold: 10   # alert when DLQ size exceeds this
+
+  # Edge Case #12: Rate limiting
+  rate-limit:
+    order-create-per-minute: 10
+    checkout-per-minute: 5
+    login-per-minute: 20
+
+  # Edge Case #4: Price snapshot tolerance
+  price:
+    snapshot-tolerance-percent: 1.0   # allow ±1% price change
+
+  payment:
+    mock-success-rate: 0.9
+
+  # Edge Case #24 — Transaction Timeout:
+  # Default timeout for all @Transactional methods.
+  # Prevents runaway queries from holding DB connections indefinitely.
+  # Individual methods can override with @Transactional(timeout=N).
+  transaction:
+    default-timeout-seconds: 30      # global default
+    checkout-timeout-seconds: 10     # tight budget for checkout
+
+logging:
+  level:
+    com.ecommerce: DEBUG
+    # Edge Case #24 — Connection Pool Exhaustion: log Hikari pool events
+    com.zaxxer.hikari: INFO
+    com.zaxxer.hikari.HikariPool: DEBUG
+    # Edge Case #23 — N+1 Detection: set to DEBUG in dev to see all SQL
+    org.hibernate.SQL: WARN
+    org.hibernate.stat: WARN
+  pattern:
+    console: '{"timestamp":"%d{yyyy-MM-dd HH:mm:ss.SSS}","level":"%-5level","service":"monolith","correlationId":"%X{correlationId:-}","userId":"%X{userId:-}","orderId":"%X{orderId:-}","message":"%msg"}%n'

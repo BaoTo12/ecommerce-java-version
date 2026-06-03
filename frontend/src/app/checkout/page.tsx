@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
+import { useToast } from '@/context/ToastContext';
 
 interface Address {
   id: string;
@@ -18,9 +19,17 @@ interface Address {
   isDefault: boolean;
 }
 
+interface CouponDiscountResult {
+  couponId: string;
+  code: string;
+  discountAmount: number;
+  finalAmount: number;
+}
+
 export default function CheckoutPage() {
   const { user, token } = useAuth();
   const { cart, clearLocalCart } = useCart();
+  const { showToast } = useToast();
   const router = useRouter();
 
   const [step, setStep] = useState<number>(1);
@@ -41,6 +50,17 @@ export default function CheckoutPage() {
   const [cardName, setCardName] = useState('');
   const [cardExpiry, setCardExpiry] = useState('12/28');
   const [cardCVV, setCardCVV] = useState('***');
+
+  // Idempotency Key (Generated stable on mount)
+  const [idempotencyKey] = useState(() => {
+    return `idemp-${Math.random().toString(36).substring(2, 11)}-${Date.now()}`;
+  });
+
+  // Coupon States
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<CouponDiscountResult | null>(null);
+  const [couponError, setCouponError] = useState('');
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -107,6 +127,9 @@ export default function CheckoutPage() {
         setLine1('');
         setCity('');
         setPostalCode('');
+        showToast("Address saved to profile.", "success");
+      } else {
+        showToast("Failed to save address.", "error");
       }
     } catch (err) {
       console.error("Failed to add address", err);
@@ -115,78 +138,161 @@ export default function CheckoutPage() {
     }
   };
 
-  const handleFinalizeCheckout = async () => {
-    if (!user || !selectedAddressId) return;
+  const handleApplyCoupon = async () => {
+    if (!couponInput || !cart) return;
 
     try {
-      setCheckoutLoading(true);
+      setValidatingCoupon(true);
+      setCouponError('');
       
-      const res = await fetch('/api/checkout', {
+      const res = await fetch('/api/coupons/validate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          userId: user.id
+          couponCode: couponInput,
+          orderTotal: cart.subtotal
+        })
+      });
+
+      if (res.ok) {
+        const data: CouponDiscountResult = await res.json();
+        setAppliedCoupon(data);
+        showToast(`Coupon "${data.code}" applied successfully!`, "success");
+      } else {
+        const errorText = await res.text();
+        let message = "Invalid coupon code.";
+        try {
+          const errorObj = JSON.parse(errorText);
+          message = errorObj.message || message;
+        } catch (e) {}
+        setCouponError(message);
+        showToast(message, "error");
+      }
+    } catch (err) {
+      console.error("Failed to validate coupon", err);
+      setCouponError("Coupon validation service offline.");
+    } finally {
+      setValidatingCoupon(false);
+    }
+  };
+
+  const handleFinalizeCheckout = async () => {
+    if (!user || !selectedAddressId || !cart) return;
+
+    try {
+      setCheckoutLoading(true);
+      
+      // Step 1: Create Order
+      const res = await fetch('/api/orders/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          shippingAddressId: selectedAddressId,
+          notes: "Order placed via Web Premium UI",
+          idempotencyKey,
+          couponCode: appliedCoupon ? appliedCoupon.code : null
         })
       });
 
       if (res.ok) {
         const data = await res.json();
-        clearLocalCart();
-        router.push(`/orders?success=true&orderId=${data.orderId}`);
+        
+        // Check for idempotency duplicate warning returns early
+        if (data.errorCode === "DUPLICATE_REQUEST") {
+          showToast("Duplicate checkout request caught. Returning existing order.", "warning");
+          clearLocalCart();
+          router.push(`/orders?success=true&orderId=${data.orderId}`);
+          return;
+        }
+
+        showToast("Order placed! Commencing simulated payment...", "info");
+        
+        // Step 2: Capture Payment
+        const finalAmount = appliedCoupon ? appliedCoupon.finalAmount : cart.subtotal;
+        
+        const payRes = await fetch(`/api/payments/order/${data.orderId}?amount=${finalAmount}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (payRes.ok) {
+          const payData = await payRes.json();
+          if (payData.status === 'CHARGED') {
+            showToast("Simulated payment charged successfully!", "success");
+            clearLocalCart();
+            router.push(`/orders?success=true&orderId=${data.orderId}`);
+          } else {
+            showToast(`Simulated payment failed: ${payData.failureReason}`, "error");
+            clearLocalCart();
+            router.push(`/orders?success=false&orderId=${data.orderId}`);
+          }
+        } else {
+          showToast("Simulated gateway error during capture.", "error");
+          clearLocalCart();
+          router.push(`/orders?success=false&orderId=${data.orderId}`);
+        }
       } else {
-        throw new Error("API checkout failure");
+        const errorText = await res.text();
+        let message = "Checkout declined.";
+        try {
+          const errorObj = JSON.parse(errorText);
+          message = errorObj.message || message;
+        } catch (e) {}
+        showToast(message, "error");
       }
     } catch (err) {
       console.warn("Checkout API offline, executing local order simulation fallback", err);
       
       // Simulate client-side checkout
       const mockOrderId = `demo-order-uuid-${Math.random().toString(36).substr(2, 9)}`;
+      const finalAmount = appliedCoupon ? appliedCoupon.finalAmount : cart.subtotal;
+      
       const newOrder = {
         id: mockOrderId,
         userId: user.id,
         status: 'PENDING',
-        totalAmount: cart?.subtotal || 0,
-        items: cart?.items.map(item => ({
+        totalAmount: finalAmount,
+        items: cart.items.map(item => ({
           productId: item.productId,
           quantity: item.quantity,
           unitPrice: item.unitPrice
-        })) || [],
+        })),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
 
-      // Read existing mock orders list
       const savedOrdersStr = localStorage.getItem('demo_orders_list');
       const savedOrders = savedOrdersStr ? JSON.parse(savedOrdersStr) : [];
       savedOrders.unshift(newOrder);
       localStorage.setItem('demo_orders_list', JSON.stringify(savedOrders));
 
-      // Simulate a Kafka event in local logs for the user to read!
       const mockNotifs = [
         {
           id: `demo-notif-uuid-1`,
           orderId: mockOrderId,
           type: 'EMAIL',
           recipient: user.email,
-          message: `Dear ${user.name}, your mock order ${mockOrderId.substring(0,8)} of ${formatPrice(cart?.subtotal || 0)} was placed successfully!`,
+          message: `Dear ${user.name}, your mock order ${mockOrderId.substring(0,8)} of ${formatPrice(finalAmount)} was placed successfully!`,
           createdAt: new Date().toISOString()
         }
       ];
       localStorage.setItem(`demo_notifs_${mockOrderId}`, JSON.stringify(mockNotifs));
 
-      // Simulate state transitions history (event logs)
       const mockHistory = [
         { fromStatus: null, toStatus: 'PENDING', reason: 'Order created', createdAt: new Date().toISOString() },
         { fromStatus: 'PENDING', toStatus: 'CONFIRMED', reason: 'Order confirmed after validation', createdAt: new Date(Date.now() + 1000).toISOString() }
       ];
       localStorage.setItem(`demo_history_${mockOrderId}`, JSON.stringify(mockHistory));
 
-      // Set timeout to simulate payment processing success in 3 seconds!
       setTimeout(() => {
-        // Mark order as paid / confirmed
         const currentOrdersStr = localStorage.getItem('demo_orders_list');
         if (currentOrdersStr) {
           const currentOrders = JSON.parse(currentOrdersStr);
@@ -199,6 +305,7 @@ export default function CheckoutPage() {
       }, 3000);
 
       clearLocalCart();
+      showToast("Simulation checkout complete.", "success");
       router.push(`/orders?success=true&orderId=${mockOrderId}`);
     } finally {
       setCheckoutLoading(false);
@@ -219,6 +326,8 @@ export default function CheckoutPage() {
       </div>
     );
   }
+
+  const finalAmount = appliedCoupon ? appliedCoupon.finalAmount : cart.subtotal;
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
@@ -358,10 +467,64 @@ export default function CheckoutPage() {
                 </div>
               ))}
             </div>
-            <div className="border-t border-white/5 pt-4 space-y-3">
-              <div className="flex justify-between text-sm font-bold text-white">
+
+            {/* Promo Code Section */}
+            <div className="border-t border-white/5 pt-4 space-y-2">
+              <label className="block text-[10px] font-mono font-semibold text-gray-500 uppercase">Promo Code</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. FLASH20"
+                  value={couponInput}
+                  onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                  disabled={appliedCoupon !== null}
+                  className="flex-grow px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-600 outline-none focus:border-indigo-500/50 text-xs font-mono uppercase"
+                />
+                {appliedCoupon ? (
+                  <button
+                    onClick={() => {
+                      setAppliedCoupon(null);
+                      setCouponInput('');
+                    }}
+                    className="px-3 py-2 rounded-lg border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 text-xs font-bold text-red-400 transition-all cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleApplyCoupon}
+                    disabled={validatingCoupon || !couponInput}
+                    className="px-3 py-2 rounded-lg border border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 text-xs font-bold text-indigo-400 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {validatingCoupon ? '...' : 'Apply'}
+                  </button>
+                )}
+              </div>
+              {couponError && (
+                <p className="text-[10px] text-red-400 font-mono">{couponError}</p>
+              )}
+              {appliedCoupon && (
+                <p className="text-[10px] text-green-400 font-mono">
+                  Applied: {appliedCoupon.code} (-{formatPrice(appliedCoupon.discountAmount)})
+                </p>
+              )}
+            </div>
+
+            {/* Total Fields */}
+            <div className="border-t border-white/5 pt-4 space-y-2">
+              <div className="flex justify-between text-xs text-gray-400">
+                <span>Subtotal</span>
+                <span className="font-mono text-white">{formatPrice(cart.subtotal)}</span>
+              </div>
+              {appliedCoupon && (
+                <div className="flex justify-between text-xs text-green-400 font-mono">
+                  <span>Promo Discount ({appliedCoupon.code})</span>
+                  <span>-{formatPrice(appliedCoupon.discountAmount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-sm font-bold text-white border-t border-white/5 pt-2">
                 <span>Grand Total</span>
-                <span className="font-mono text-indigo-400">{formatPrice(cart.subtotal)}</span>
+                <span className="font-mono text-indigo-400">{formatPrice(finalAmount)}</span>
               </div>
             </div>
             <button
@@ -384,7 +547,6 @@ export default function CheckoutPage() {
               Aether Credit Gateway
             </h2>
             <div className="relative h-56 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-500 p-6 flex flex-col justify-between shadow-2xl overflow-hidden group">
-              {/* Card glowing shadows */}
               <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-white/10 blur-2xl group-hover:scale-110 transition-transform pointer-events-none" />
               
               <div className="flex justify-between items-start">
@@ -431,7 +593,7 @@ export default function CheckoutPage() {
                   placeholder="JOHN DOE"
                   value={cardName}
                   onChange={(e) => setCardName(e.target.value)}
-                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white outline-none focus:border-indigo-500 text-xs"
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white outline-none focus:border-indigo-500 text-xs font-mono"
                 />
               </div>
 
@@ -439,9 +601,9 @@ export default function CheckoutPage() {
                 <div className="col-span-2">
                   <label className="block text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">Simulation Strategy</label>
                   <select
-                    className="w-full px-3 py-2 bg-[#030712] border border-white/10 rounded-lg text-white outline-none focus:border-indigo-500 text-xs"
+                    className="w-full px-3 py-2 bg-[#030712] border border-white/10 rounded-lg text-white outline-none focus:border-indigo-500 text-xs font-mono"
                   >
-                    <option>Succeed Transaction (90% success rate)</option>
+                    <option>Succeed Transaction (Charge Card)</option>
                     <option>Force Failure (test error handling)</option>
                   </select>
                 </div>
@@ -477,7 +639,7 @@ export default function CheckoutPage() {
                     </>
                   ) : (
                     <>
-                      Finalize Order ({formatPrice(cart.subtotal)})
+                      Finalize Order ({formatPrice(finalAmount)})
                       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
                         <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
                       </svg>

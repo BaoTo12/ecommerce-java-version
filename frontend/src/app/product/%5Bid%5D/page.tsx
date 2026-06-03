@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { getProductImage } from '@/app/utils/productImages';
 import { useCart } from '@/context/CartContext';
+import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 
 interface Product {
@@ -31,6 +32,7 @@ export default function ProductDetailPage() {
   const [quantity, setQuantity] = useState<number>(1);
   const { addToCart } = useCart();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [adding, setAdding] = useState<boolean>(false);
   const [added, setAdded] = useState<boolean>(false);
 
@@ -84,7 +86,7 @@ export default function ProductDetailPage() {
 
   const handleAddToCart = async () => {
     if (!user) {
-      alert("Please sign in to add items to your cart.");
+      showToast("Please sign in to add items to your cart.", "info");
       router.push('/login');
       return;
     }
@@ -95,7 +97,10 @@ export default function ProductDetailPage() {
       const success = await addToCart(product.id, quantity);
       if (success) {
         setAdded(true);
+        showToast("Added to cart!", "success");
         setTimeout(() => setAdded(false), 2000);
+      } else {
+        showToast("Failed to add to cart.", "error");
       }
     } finally {
       setAdding(false);

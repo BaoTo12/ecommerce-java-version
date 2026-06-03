@@ -194,13 +194,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       setLoading(true);
-      const res = await fetch(`/api/cart/items/${itemId}`, {
-        method: 'PATCH',
+      const res = await fetch(`/api/cart/items/${itemId}?quantity=${quantity}`, {
+        method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ quantity })
+        }
       });
 
       if (res.ok) {
@@ -210,7 +208,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return false;
     } catch (err) {
-      console.warn("API patch failed, updating local state", err);
+      console.warn("API update failed, updating local state", err);
       return false;
     } finally {
       setLoading(false);

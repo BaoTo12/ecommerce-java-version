@@ -4,9 +4,11 @@ import React from 'react';
 import Link from 'next/link';
 import { useCart } from '@/context/CartContext';
 import { getProductImage } from '@/app/utils/productImages';
+import { useToast } from '@/context/ToastContext';
 
 export default function CartPage() {
   const { cart, loading, updateCartItem, removeFromCart } = useCart();
+  const { showToast } = useToast();
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
@@ -15,7 +17,21 @@ export default function CartPage() {
   const handleQuantityChange = async (itemId: string, currentQty: number, change: number) => {
     const newQty = currentQty + change;
     if (newQty < 1) return;
-    await updateCartItem(itemId, newQty);
+    const success = await updateCartItem(itemId, newQty);
+    if (success) {
+      showToast("Quantity updated", "success");
+    } else {
+      showToast("Failed to update quantity.", "error");
+    }
+  };
+
+  const handleRemove = async (itemId: string) => {
+    const success = await removeFromCart(itemId);
+    if (success) {
+      showToast("Item removed from cart", "success");
+    } else {
+      showToast("Failed to remove item.", "error");
+    }
   };
 
   if (loading && !cart) {
@@ -129,7 +145,7 @@ export default function CartPage() {
 
                 {/* Remove Actions */}
                 <button
-                  onClick={() => removeFromCart(item.itemId)}
+                  onClick={() => handleRemove(item.itemId)}
                   className="p-2 rounded-lg border border-white/5 hover:border-red-500/30 hover:bg-red-500/10 text-gray-500 hover:text-red-400 transition-all cursor-pointer self-start sm:self-center"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">

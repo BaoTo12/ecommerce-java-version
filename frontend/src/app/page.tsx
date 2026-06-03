@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getProductImage } from '@/app/utils/productImages';
 import { useCart } from '@/context/CartContext';
+import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 
 interface Product {
@@ -21,6 +22,7 @@ export default function CatalogPage() {
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
   const { addToCart } = useCart();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [addingId, setAddingId] = useState<string | null>(null);
 
   // Debounce search input
@@ -69,12 +71,17 @@ export default function CatalogPage() {
   const handleAddToCart = async (e: React.MouseEvent, productId: string) => {
     e.preventDefault();
     if (!user) {
-      alert("Please sign in to add items to your cart.");
+      showToast("Please sign in to add items to your cart.", "info");
       return;
     }
     try {
       setAddingId(productId);
-      await addToCart(productId, 1);
+      const success = await addToCart(productId, 1);
+      if (success) {
+        showToast("Added to cart!", "success");
+      } else {
+        showToast("Failed to add item.", "error");
+      }
     } finally {
       setAddingId(null);
     }
