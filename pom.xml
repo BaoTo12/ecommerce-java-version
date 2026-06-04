@@ -12,6 +12,6 @@
     <description>Monolith — all services merged into one Spring Boot application.</description>
 
     <modules>
-        <module>ecommerce-monolith</module>
+        <module>backend</module>
     </modules>
 </project>

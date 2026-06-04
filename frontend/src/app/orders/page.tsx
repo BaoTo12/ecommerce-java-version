@@ -100,16 +100,8 @@ function OrdersList() {
       setOrderHistory([]);
       setNotifs([]);
 
-      // 1. Fetch order state transitions history
-      const histRes = await fetch(`/api/orders/${orderId}/history`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (histRes.ok) {
-        const histData = await histRes.json();
-        setOrderHistory(histData);
-      } else {
-        throw new Error("History API failed");
-      }
+      // 1. Fetch order state transitions history (Disabled)
+      setOrderHistory([]);
 
       // 2. Fetch notification records triggered in notification-service
       try {

@@ -1,19 +1,5 @@
 version: '3.8'
-
-# ─────────────────────────────────────────────────────────────────────────────
-# E-commerce Monolith — Docker Compose
-#
-# BEFORE (microservices): 6 Spring Boot apps + 5 PostgreSQL DBs + Kafka +
-#   Zookeeper + gateway = 14+ containers to manage.
-#
-# AFTER (monolith): 1 Spring Boot app + 1 PostgreSQL DB = 2 containers.
-# ─────────────────────────────────────────────────────────────────────────────
-
 services:
-
-  # ─── Single PostgreSQL database ──────────────────────────────────────────
-  # Replaces: user_db, order_db, inventory_db, payment_db, notification_db
-  # All domains share one DB (separate schemas in production recommended).
   postgres:
     image: postgres:16-alpine
     container_name: ecommerce_db
@@ -31,32 +17,30 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── Single Spring Boot monolith ─────────────────────────────────────────
-  # Replaces: gateway, user, order, inventory, payment, notification services
-  app:
-    build:
-      context: ./ecommerce-monolith
-      dockerfile: Dockerfile
-    container_name: ecommerce_app
-    ports:
-      - "8080:8080"
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ecommerce_db
-      SPRING_DATASOURCE_USERNAME: ecommerce_user
-      SPRING_DATASOURCE_PASSWORD: secret
-      APP_JWT_SECRET: T8527G5bvpx172miHv-Q5cDB8fs3cxW9AlmbifI5RKk-must-be-at-least-256-bits-long
-    depends_on:
-      postgres:
-        condition: service_healthy
-    # Edge Case #19: Graceful shutdown — Docker sends SIGTERM, Spring waits
-    # for in-flight requests to complete before shutting down.
-    stop_grace_period: 35s
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+#  app:
+#    build:
+#      context: ./ecommerce-monolith
+#      dockerfile: Dockerfile
+#    container_name: ecommerce_app
+#    ports:
+#      - "8080:8080"
+#    environment:
+#      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ecommerce_db
+#      SPRING_DATASOURCE_USERNAME: ecommerce_user
+#      SPRING_DATASOURCE_PASSWORD: secret
+#      APP_JWT_SECRET: T8527G5bvpx172miHv-Q5cDB8fs3cxW9AlmbifI5RKk-must-be-at-least-256-bits-long
+#    depends_on:
+#      postgres:
+#        condition: service_healthy
+#    # Edge Case #19: Graceful shutdown — Docker sends SIGTERM, Spring waits
+#    # for in-flight requests to complete before shutting down.
+#    stop_grace_period: 35s
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
+#      interval: 30s
+#      timeout: 10s
+#      retries: 3
+#      start_period: 60s
 
 volumes:
   pgdata:

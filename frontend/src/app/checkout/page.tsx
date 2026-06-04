@@ -46,10 +46,55 @@ export default function CheckoutPage() {
   const [postalCode, setPostalCode] = useState('');
 
   // Payment State
-  const [cardNumber, setCardNumber] = useState('4242 •••• •••• 4242');
+  const [cardNumber, setCardNumber] = useState('4242 4242 4242 4242');
   const [cardName, setCardName] = useState('');
   const [cardExpiry, setCardExpiry] = useState('12/28');
-  const [cardCVV, setCardCVV] = useState('***');
+  const [cardCVV, setCardCVV] = useState('123');
+  const [simulationStrategy, setSimulationStrategy] = useState('SUCCEED');
+
+  const handleStrategyChange = (strategy: string) => {
+    setSimulationStrategy(strategy);
+    if (strategy === 'SUCCEED') {
+      setCardNumber('4242 4242 4242 4242');
+      setCardExpiry('12/28');
+      setCardCVV('123');
+    } else if (strategy === 'DECLINED') {
+      setCardNumber('4000 0000 0000 0002');
+      setCardExpiry('12/28');
+      setCardCVV('123');
+    } else if (strategy === 'INSUFFICIENT_FUNDS') {
+      setCardNumber('4000 0000 0000 3022');
+      setCardExpiry('12/28');
+      setCardCVV('123');
+    } else if (strategy === 'EXPIRED_CARD') {
+      setCardNumber('4000 0000 0000 0115');
+      setCardExpiry('01/20');
+      setCardCVV('123');
+    } else if (strategy === 'INCORRECT_CVC') {
+      setCardNumber('4000 0000 0000 0123');
+      setCardExpiry('12/28');
+      setCardCVV('999');
+    } else if (strategy === 'TIMEOUT') {
+      setCardNumber('4242 4242 4242 4242');
+      setCardExpiry('12/28');
+      setCardCVV('123');
+    }
+  };
+
+  const handleCardNumberChange = (value: string) => {
+    const clean = value.replace(/\D/g, '').substring(0, 16);
+    const formatted = clean.replace(/(\d{4})(?=\d)/g, '$1 ');
+    setCardNumber(formatted);
+  };
+
+  const handleExpiryChange = (value: string) => {
+    const clean = value.replace(/\D/g, '').substring(0, 4);
+    if (clean.length > 2) {
+      setCardExpiry(`${clean.substring(0, 2)}/${clean.substring(2)}`);
+    } else {
+      setCardExpiry(clean);
+    }
+  };
 
   // Idempotency Key (Generated stable on mount)
   const [idempotencyKey] = useState(() => {
@@ -215,8 +260,16 @@ export default function CheckoutPage() {
         
         // Step 2: Capture Payment
         const finalAmount = appliedCoupon ? appliedCoupon.finalAmount : cart.subtotal;
+        const queryParams = new URLSearchParams({
+          amount: finalAmount.toString(),
+          cardNumber: cardNumber.replace(/\s/g, ''),
+          cvc: cardCVV,
+          cardName: cardName,
+          expiry: cardExpiry,
+          strategy: simulationStrategy
+        });
         
-        const payRes = await fetch(`/api/payments/order/${data.orderId}?amount=${finalAmount}`, {
+        const payRes = await fetch(`/api/payments/order/${data.orderId}?${queryParams.toString()}`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -582,9 +635,37 @@ export default function CheckoutPage() {
 
           {/* Form and Checkout Control */}
           <div className="glass-panel border border-white/10 rounded-2xl p-6 space-y-6">
-            <h3 className="text-base font-bold text-white font-mono">Fill transaction metrics</h3>
+            <h3 className="text-base font-bold text-white font-mono uppercase tracking-wider text-indigo-400">Fill Transaction Details</h3>
             
             <div className="space-y-4">
+              <div>
+                <label className="block text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">Simulation Strategy</label>
+                <select
+                  value={simulationStrategy}
+                  onChange={(e) => handleStrategyChange(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#030712] border border-white/10 rounded-lg text-white outline-none focus:border-indigo-500 text-xs font-mono"
+                >
+                  <option value="SUCCEED">Succeed Transaction (4242 4242 4242 4242)</option>
+                  <option value="DECLINED">Force Fail: Card Declined (4000 0000 0000 0002)</option>
+                  <option value="INSUFFICIENT_FUNDS">Force Fail: Insufficient Funds (4000 0000 0000 3022)</option>
+                  <option value="EXPIRED_CARD">Force Fail: Expired Card (4000 0000 0000 0115)</option>
+                  <option value="INCORRECT_CVC">Force Fail: Incorrect CVV/CVC (4000 0000 0000 0123)</option>
+                  <option value="TIMEOUT">Force Fail: Gateway Timeout (Sleeps 3s)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">Card Number</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="4242 4242 4242 4242"
+                  value={cardNumber}
+                  onChange={(e) => handleCardNumberChange(e.target.value)}
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white outline-none focus:border-indigo-500 text-xs font-mono"
+                />
+              </div>
+
               <div>
                 <label className="block text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">Cardholder Name</label>
                 <input
@@ -597,24 +678,27 @@ export default function CheckoutPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">Simulation Strategy</label>
-                  <select
-                    className="w-full px-3 py-2 bg-[#030712] border border-white/10 rounded-lg text-white outline-none focus:border-indigo-500 text-xs font-mono"
-                  >
-                    <option>Succeed Transaction (Charge Card)</option>
-                    <option>Force Failure (test error handling)</option>
-                  </select>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">Expiry Date</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="MM/YY"
+                    maxLength={5}
+                    value={cardExpiry}
+                    onChange={(e) => handleExpiryChange(e.target.value)}
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white outline-none focus:border-indigo-500 text-xs text-center font-mono"
+                  />
                 </div>
                 <div>
-                  <label className="block text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">CVV</label>
+                  <label className="block text-[9px] font-mono text-gray-500 uppercase tracking-widest mb-1.5">CVV / CVC</label>
                   <input
                     type="password"
-                    maxLength={3}
+                    maxLength={4}
                     placeholder="123"
                     value={cardCVV}
-                    onChange={(e) => setCardCVV(e.target.value)}
+                    onChange={(e) => setCardCVV(e.target.value.replace(/\D/g, ''))}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white outline-none focus:border-indigo-500 text-xs text-center font-mono"
                   />
                 </div>

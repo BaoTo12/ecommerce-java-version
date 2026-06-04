@@ -1971,3 +1971,113 @@ until the business explicitly needs partial fulfillment.
 | 28 | Large Payload Protection | `max-swallow-size` + `@Size` | WAF only → bypassed by direct access | Blocks legitimately large files |
 | 29 | Audit Log Immutability | `@Immutable` + no setters + DB RLS | Rely on discipline → always fails | Cannot fix incorrectly recorded records |
 | 30 | Partial Fulfillment Policy | Config-driven `FulfillmentPolicy` enum | Hardcode → wrong for some businesses | PARTIAL_FULFILL needs complex billing |
+
+
+## 1. API Endpoint 1: Create Checkout Session (Phase 1)
+
+**Route:** `POST /api/v1/checkout/session`
+**Input:** Cart ID, User ID.
+**Goal:** Lock inventory with a strict timer and create the idempotency key.
+
+**Code Logic Execution Flow:**
+
+1. **Calculate Total & Generate Keys:** Read the requested items, multiply prices by quantities for the `total_amount`, and generate a unique random string (UUID) for the `idempotency_key` and each `reservation_id`.
+2. **Start Database Transaction:** (This ensures if anything fails, no partial data is saved).
+3. **Check and Lock Inventory:** For every item, execute an update query: `UPDATE products SET available_stock = available_stock - requested_quantity WHERE product_id = 'X' AND available_stock >= requested_quantity`.
+* *If the query updates 0 rows:* The item is out of stock. Throw an error, cancel the transaction, and return a "Not enough stock" message to the client.
+
+
+4. **Create Reservations:** Insert a row into the `inventory_reservations` table for each item. Set `status = 'HELD'` and set `expires_at` to exactly 15 minutes from the current time.
+5. **Save Session:** Insert a new row into the `checkout_sessions` table with the key, total amount, user ID, and set `status = 'CREATED'`.
+6. **Commit Database Transaction:** Save all changes permanently.
+7. **Return to Client:** Send the `idempotency_key` and the 15-minute expiration time back to the client application.
+
+---
+
+## 2. API Endpoint 2: Execute Payment (Phase 2)
+
+**Route:** `POST /api/v1/checkout/execute`
+**Input:** Payment Details (like credit card token).
+**Headers:** `Idempotency-Key: <the_key_from_phase_1>`
+**Goal:** Verify the inventory reservation, safely process the money, and create the final order.
+
+**Code Logic Execution Flow:**
+
+**Step A: The Idempotency & Expiration Check**
+
+1. **Read Session:** Query the `checkout_sessions` table using the key from the header.
+2. **Check Session Status:**
+* If key does not exist: Return HTTP 400 (Bad Request).
+* If status == 'SUCCESS': Return the saved `response_body`. Stop executing.
+* If status == 'PAYMENT_PROCESSING': Return HTTP 409 (Conflict). Tell the client "Payment is currently running, please wait." Stop executing.
+* If status == 'CREATED' or 'PAYMENT_FAILED': Proceed to the next check.
+
+
+3. **Check Reservation Expiration:** Query the `inventory_reservations` table. Compare the current time to the `expires_at` time.
+* *If current time > expires_at:* Return HTTP 400. Tell the client "Your reservation expired, please refresh your cart." Stop executing.
+
+
+
+**Step B: The Order Preparation**
+4. **Start Database Transaction:**
+5. **Update Session:** Change `checkout_sessions.status` to `PAYMENT_PROCESSING`.
+6. **Check for Existing Order:** Did a previous payment fail? If yes, an order might already exist. Look at `checkout_sessions.order_id`.
+* *If no order exists:* Create a new row in the `orders` table (with status `PENDING`). Create rows in the `order_items` table. Link the new `order_id` to the `checkout_sessions` table.
+7. **Commit Database Transaction:** (You must commit here so the `PAYMENT_PROCESSING` status is saved before you talk to the external payment provider).
+
+**Step C: The Payment Execution**
+8. **Call Payment Provider:** Send the `total_amount` and credit card details to your payment provider (like Stripe). Include your `order_id` so the provider has a record of it.
+9. **Wait for Response.**
+
+**Step D: The Final Result**
+10. **Start Database Transaction:**
+11. **If Payment Succeeded:**
+* Insert a row into `payments` table with status = 'SUCCESS'.
+* Update `orders` table to status = 'PAID'.
+* Update `checkout_sessions` to status = 'SUCCESS'. Save the final JSON response text into the `response_body` column.
+* Update `inventory_reservations` to status = 'COMPLETED'.
+12. **If Payment Failed:**
+* Insert a row into `payments` table with status = 'FAILED'.
+* Update `orders` table to status = 'PENDING'.
+* Update `checkout_sessions` to status = 'PAYMENT_FAILED'.
+* *Do NOT update reservations.* Leave them as `HELD` so the user can try paying again within their 15-minute window.
+13. **Commit Database Transaction.**
+14. **Return to Client:** Send the final success or error response.
+
+---
+
+## 3. Background Job: Cleanup Expired Reservations (Phase 3)
+
+**Execution (Runs automatically every 1 minute):**
+
+**Code Logic Execution Flow:**
+
+1. **Find Expired Items:** Query `inventory_reservations` where `status = 'HELD'` AND `expires_at < CURRENT_TIME`.
+2. **Start Database Transaction:**
+3. **Return Stock:** For every expired item, execute: `UPDATE products SET available_stock = available_stock + expired_quantity WHERE product_id = 'X'`.
+4. **Update Reservations:** Change these specific rows in `inventory_reservations` to `status = 'EXPIRED'`.
+5. **Update Sessions:** Find the `checkout_sessions` connected to these reservations and update their status to `EXPIRED`.
+6. **Commit Database Transaction.**
+
+---
+
+## Architectural Decision Review: Explicit Inventory Reservations
+
+**1. What problem does this solve?**
+It prevents the permanent loss of inventory. If you only subtract numbers from a product table, an abandoned cart means that product is gone forever. This design leaves a clear paper trail, allowing a background system to safely return items to the shelf if the user walks away.
+
+**2. Why choose it?**
+It handles the reality of network communication and user behavior. Users often close their browsers or have their credit cards declined. Giving them a dedicated 15-minute hold guarantees they have time to fix payment issues without losing the item, while ensuring the business does not lose stock permanently.
+
+**3. What are the trade-offs?**
+
+* **Pros:** Highly accurate tracking of items. Excellent user experience during payment failures. Prevents race conditions at checkout.
+* **Cons:** Increases database size rapidly. Requires you to write, deploy, and monitor a separate background worker process to clean up the data.
+
+**4. What alternatives exist?**
+You could check inventory strictly at the exact moment of payment execution (Phase 2, Step C). You read the stock, try to pay, and deduct it only if the payment succeeds.
+
+**5. Under what conditions would another choice be better?**
+Checking stock only at payment execution is better for stores with infinite digital goods (like software downloads) or massive warehouses where items rarely sell out. However, if you are selling items with limited stock (like concert tickets or limited-edition clothing), the explicit reservation system is mandatory to prevent angry customers who click "Pay" only to find out the item vanished from their cart.
+
+How do you plan to handle the situation where a customer's payment succeeds at the exact same moment your background job attempts to mark their reservation as expired?
