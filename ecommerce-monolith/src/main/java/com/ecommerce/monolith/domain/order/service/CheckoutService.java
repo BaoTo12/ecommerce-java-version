@@ -19,7 +19,7 @@ import com.ecommerce.monolith.domain.user.service.UserService;
 import com.ecommerce.monolith.infrastructure.exception.BusinessRuleViolationException;
 import com.ecommerce.monolith.infrastructure.exception.PriceChangedException;
 import com.ecommerce.monolith.infrastructure.exception.ResourceNotFoundException;
-import com.ecommerce.monolith.infrastructure.outbox.OutboxService;
+import com.ecommerce.monolith.domain.notification.service.NotificationService;
 import com.ecommerce.monolith.infrastructure.security.SecurityUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -53,7 +53,7 @@ public class CheckoutService {
   private final InventoryService inventoryService;
   private final PaymentService paymentService;
   private final UserService userService;
-  private final OutboxService outboxService;
+  private final NotificationService notificationService;
   private final com.ecommerce.monolith.domain.coupon.service.CouponService couponService;
 
   @Value("${app.price.snapshot-tolerance-percent:1.0}")
@@ -67,7 +67,7 @@ public class CheckoutService {
       InventoryService inventoryService,
       PaymentService paymentService,
       UserService userService,
-      OutboxService outboxService,
+      NotificationService notificationService,
       com.ecommerce.monolith.domain.coupon.service.CouponService couponService) {
     this.cartRepo = cartRepo;
     this.productRepo = productRepo;
@@ -76,7 +76,7 @@ public class CheckoutService {
     this.inventoryService = inventoryService;
     this.paymentService = paymentService;
     this.userService = userService;
-    this.outboxService = outboxService;
+    this.notificationService = notificationService;
     this.couponService = couponService;
   }
 
@@ -231,11 +231,12 @@ public class CheckoutService {
       throw new BusinessRuleViolationException("Inventory reservation failed: " + e.getMessage());
     }
 
-    // Write notification event to outbox (Edge Case #11)
-    outboxService.save(
-        "OrderConfirmedNotification",
-        order.getId().toString(),
-        Map.of("orderId", order.getId(), "userId", userId));
+    // Send order confirmation notification directly (Edge Case #11 / Monolith simplified)
+    try {
+      notificationService.sendOrderConfirmed(order.getId(), userId);
+    } catch (Exception e) {
+      log.error("Failed to send order confirmation notification for order={}", order.getId(), e);
+    }
 
     log.info("Checkout successful: orderId={}, userId={}, total={}", order.getId(), userId, total);
     return new CheckoutResponse(order.getId(), order.getStatus().name(), total, null);

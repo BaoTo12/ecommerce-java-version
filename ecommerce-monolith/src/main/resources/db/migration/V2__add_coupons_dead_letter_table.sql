@@ -50,24 +50,6 @@ CREATE TABLE coupon_usages (
 CREATE INDEX idx_coupon_usage_order ON coupon_usages(order_id);
 
 -- ─────────────────────────────────────────────────────────────
--- DEAD LETTER MESSAGES (Edge Case #26: DLQ for failed outbox)
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE dead_letter_messages (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    original_outbox_id  UUID NOT NULL REFERENCES outbox_messages(id),
-    event_type          VARCHAR(100) NOT NULL,
-    aggregate_id        VARCHAR(100) NOT NULL,
-    payload             TEXT NOT NULL,
-    failure_reason      TEXT NOT NULL,
-    retry_count         INT NOT NULL,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    replayed_at         TIMESTAMPTZ,
-    replayed_by         VARCHAR(100)
-);
-CREATE INDEX idx_dlm_event_type ON dead_letter_messages(event_type);
-CREATE INDEX idx_dlm_unprocessed ON dead_letter_messages(replayed_at) WHERE replayed_at IS NULL;
-
--- ─────────────────────────────────────────────────────────────
 -- AUDIT: Strengthen order_status_history immutability
 -- Edge Case #29: Row Security Policies prevent UPDATE/DELETE
 -- ─────────────────────────────────────────────────────────────

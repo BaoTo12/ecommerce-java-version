@@ -9,7 +9,7 @@ import com.ecommerce.monolith.domain.order.repository.OrderRepository;
 import com.ecommerce.monolith.domain.order.repository.OrderStatusHistoryRepository;
 import com.ecommerce.monolith.infrastructure.exception.BusinessRuleViolationException;
 import com.ecommerce.monolith.infrastructure.exception.ResourceNotFoundException;
-import com.ecommerce.monolith.infrastructure.outbox.OutboxService;
+import com.ecommerce.monolith.domain.notification.service.NotificationService;
 import com.ecommerce.monolith.infrastructure.security.SecurityUtils;
 import java.util.List;
 import java.util.Map;
@@ -36,15 +36,15 @@ public class OrderService {
 
   private final OrderRepository orderRepo;
   private final OrderStatusHistoryRepository historyRepo;
-  private final OutboxService outboxService;
+  private final NotificationService notificationService;
 
   public OrderService(
       OrderRepository orderRepo,
       OrderStatusHistoryRepository historyRepo,
-      OutboxService outboxService) {
+      NotificationService notificationService) {
     this.orderRepo = orderRepo;
     this.historyRepo = historyRepo;
-    this.outboxService = outboxService;
+    this.notificationService = notificationService;
   }
 
   /**
@@ -95,11 +95,12 @@ public class OrderService {
         OrderStatusHistoryEntity.of(
             orderId, from.name(), OrderStatus.CANCELLED.name(), "Cancelled by customer"));
 
-    // Write notification event to outbox (Edge Case #11)
-    outboxService.save(
-        "OrderCancelledNotification",
-        orderId.toString(),
-        Map.of("orderId", orderId, "userId", userId, "reason", "Cancelled by customer"));
+    // Send cancellation notification directly (Edge Case #11 / Monolith simplified)
+    try {
+      notificationService.sendOrderCancelled(orderId, userId, "Cancelled by customer");
+    } catch (Exception e) {
+      log.error("Failed to send order cancellation notification for order={}", orderId, e);
+    }
 
     log.info("Order cancelled: orderId={}", orderId);
   }

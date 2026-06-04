@@ -73,10 +73,14 @@ CREATE TABLE products (
     price       NUMERIC(15, 2) NOT NULL,  -- Live price; snapshotted in cart_items
     is_active   BOOLEAN NOT NULL DEFAULT TRUE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    search_vector tsvector GENERATED ALWAYS AS (
+        to_tsvector('english', coalesce(name, '') || ' ' || coalesce(description, '') || ' ' || coalesce(sku, ''))
+    ) STORED
 );
 CREATE INDEX idx_product_sku  ON products(sku);
 CREATE INDEX idx_product_active ON products(is_active) WHERE is_active = TRUE;
+CREATE INDEX idx_products_search ON products USING gin(search_vector);
 
 -- ─────────────────────────────────────────────────────────────
 -- INVENTORY (Edge Case #2: @Version, Edge Case #14: Atomic Decrement)
@@ -228,26 +232,6 @@ CREATE INDEX idx_notification_order ON notifications(order_id);
 CREATE INDEX idx_notification_user  ON notifications(user_id);
 
 -- ─────────────────────────────────────────────────────────────
--- OUTBOX MESSAGES (Edge Case #11: Transactional Outbox)
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE outbox_messages (
-    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    event_type     VARCHAR(100) NOT NULL,
-    aggregate_id   VARCHAR(100) NOT NULL,
-    payload        TEXT NOT NULL,
-    published      BOOLEAN NOT NULL DEFAULT FALSE,
-    published_at   TIMESTAMPTZ,
-    retry_count    INT NOT NULL DEFAULT 0,
-    max_retry      INT NOT NULL DEFAULT 5,
-    last_error     VARCHAR(1000),
-    next_retry_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
--- Partial index: only index unpublished rows (polling query)
-CREATE INDEX idx_outbox_pending ON outbox_messages(published, next_retry_at)
-    WHERE published = FALSE;
-
--- ─────────────────────────────────────────────────────────────
 -- SEED DATA: Sample products and inventory
 -- ─────────────────────────────────────────────────────────────
 INSERT INTO products (id, sku, name, description, price, is_active) VALUES
@@ -268,3 +252,17 @@ INSERT INTO inventory (product_id, quantity, version) VALUES
     ('33333333-3333-3333-3333-333333333333', 100, 0),
     ('44444444-4444-4444-4444-444444444444', 75, 0),
     ('55555555-5555-5555-5555-555555555555', 30, 0);
+
+-- Seed default Admin user (password: admin123)
+-- BCrypt strength 12 hash of 'admin123': $2a$12$bX03C.iPZ917a1Ylq05m5.hA.vD.W6lq99N4CjM/Q5H4HqB2ZcK12
+INSERT INTO users (id, email, hashed_password, name, phone, roles, token_version, is_active)
+VALUES (
+  'a1111111-1111-1111-1111-11111111111a',
+  'admin@ecommerce.com',
+  '$2a$12$bX03C.iPZ917a1Ylq05m5.hA.vD.W6lq99N4CjM/Q5H4HqB2ZcK12',
+  'Admin User',
+  '0123456789',
+  'ADMIN',
+  0,
+  TRUE
+);

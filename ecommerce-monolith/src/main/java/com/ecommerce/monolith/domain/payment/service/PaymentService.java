@@ -11,7 +11,7 @@ import com.ecommerce.monolith.domain.payment.gateway.MockPaymentGatewayClient;
 import com.ecommerce.monolith.domain.payment.repository.PaymentRepository;
 import com.ecommerce.monolith.infrastructure.exception.BusinessRuleViolationException;
 import com.ecommerce.monolith.infrastructure.exception.ResourceNotFoundException;
-import com.ecommerce.monolith.infrastructure.outbox.OutboxService;
+import com.ecommerce.monolith.domain.notification.service.NotificationService;
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.UUID;
@@ -38,19 +38,19 @@ public class PaymentService {
   private final OrderRepository orderRepo;
   private final OrderStatusHistoryRepository historyRepo;
   private final MockPaymentGatewayClient gateway;
-  private final OutboxService outboxService;
+  private final NotificationService notificationService;
 
   public PaymentService(
       PaymentRepository paymentRepo,
       OrderRepository orderRepo,
       OrderStatusHistoryRepository historyRepo,
       MockPaymentGatewayClient gateway,
-      OutboxService outboxService) {
+      NotificationService notificationService) {
     this.paymentRepo = paymentRepo;
     this.orderRepo = orderRepo;
     this.historyRepo = historyRepo;
     this.gateway = gateway;
-    this.outboxService = outboxService;
+    this.notificationService = notificationService;
   }
 
   /**
@@ -111,11 +111,12 @@ public class PaymentService {
                         "Payment successful: " + result.transactionId()));
               });
 
-      // Write notification event to outbox (Edge Case #11)
-      outboxService.save(
-          "OrderCompletedNotification",
-          orderId.toString(),
-          Map.of("orderId", orderId, "userId", userId));
+      // Send order completion notification directly (Edge Case #11 / Monolith simplified)
+      try {
+        notificationService.sendOrderCompleted(orderId, userId);
+      } catch (Exception e) {
+        log.error("Failed to send order completion notification for order={}", orderId, e);
+      }
 
       log.info("Payment succeeded: order={}, txn={}", orderId, result.transactionId());
     } else {
@@ -130,11 +131,12 @@ public class PaymentService {
                 orderRepo.save(order);
               });
 
-      // Write notification event to outbox (Edge Case #11)
-      outboxService.save(
-          "PaymentFailedNotification",
-          orderId.toString(),
-          Map.of("orderId", orderId, "userId", userId, "failureReason", result.failureReason()));
+      // Send payment failure notification directly (Edge Case #11 / Monolith simplified)
+      try {
+        notificationService.sendPaymentFailed(orderId, userId, result.failureReason());
+      } catch (Exception e) {
+        log.error("Failed to send payment failure notification for order={}", orderId, e);
+      }
 
       log.warn("Payment failed: order={}, reason={}", orderId, result.failureReason());
     }

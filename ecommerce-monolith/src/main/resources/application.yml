@@ -113,14 +113,6 @@ app:
     max-attempts: 3
     backoff-ms: 50
 
-  # Edge Case #11: Outbox poller
-  outbox:
-    poll-interval-ms: 500
-    batch-size: 50
-    max-retry: 5
-    # Edge Case #26 — Dead Letter: move to DLQ after max-retry exhausted
-    dead-letter-alert-threshold: 10   # alert when DLQ size exceeds this
-
   # Edge Case #12: Rate limiting
   rate-limit:
     order-create-per-minute: 10

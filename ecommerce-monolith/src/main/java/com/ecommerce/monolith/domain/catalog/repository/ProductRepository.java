@@ -8,19 +8,23 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import org.springframework.data.repository.query.Param;
+
 public interface ProductRepository extends JpaRepository<ProductEntity, UUID> {
 
   Page<ProductEntity> findByIsActiveTrue(Pageable pageable);
 
   /**
    * Edge Case #20 — Input Sanitization: Uses named parameter (:keyword) — Spring Data JPA generates
-   * a parameterized query, preventing SQL injection.
+   * a parameterized query, preventing SQL injection. Using PostgreSQL Full-Text Search (FTS).
    */
   @Query(
-      "SELECT p FROM ProductEntity p WHERE p.isActive = true "
-          + "AND (LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')) "
-          + "OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :keyword, '%')))")
-  Page<ProductEntity> searchActive(String keyword, Pageable pageable);
+      value = "SELECT * FROM products WHERE is_active = true AND "
+            + "(:keyword IS NULL OR :keyword = '' OR search_vector @@ websearch_to_tsquery('english', :keyword))",
+      countQuery = "SELECT count(*) FROM products WHERE is_active = true AND "
+                 + "(:keyword IS NULL OR :keyword = '' OR search_vector @@ websearch_to_tsquery('english', :keyword))",
+      nativeQuery = true)
+  Page<ProductEntity> searchActive(@Param("keyword") String keyword, Pageable pageable);
 
   Optional<ProductEntity> findBySkuAndIsActiveTrue(String sku);
 }
