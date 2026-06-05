@@ -21,13 +21,15 @@ public class CatalogService {
     this.productRepo = productRepo;
   }
 
-  public Page<ProductResponse> listProducts(String keyword, Pageable pageable) {
+  public Page<ProductResponse> listProducts(String keyword, String category, Pageable pageable) {
+    String sanitizedKeyword = null;
     if (StringUtils.hasText(keyword)) {
-      // Edge Case #20: trim input, max 100 chars to prevent excessive queries
-      String sanitized = keyword.trim().substring(0, Math.min(keyword.trim().length(), 100));
-      return productRepo.searchActive(sanitized, pageable).map(this::toResponse);
+      sanitizedKeyword = keyword.trim().substring(0, Math.min(keyword.trim().length(), 100));
     }
-    return productRepo.findByIsActiveTrue(pageable).map(this::toResponse);
+    String sanitizedCategory = StringUtils.hasText(category) ? category.trim() : null;
+
+    // Use the unified searchActive query which handles optional keyword and category filters natively
+    return productRepo.searchActive(sanitizedKeyword, sanitizedCategory, pageable).map(this::toResponse);
   }
 
   public ProductResponse getProduct(UUID productId) {
@@ -40,6 +42,12 @@ public class CatalogService {
 
   private ProductResponse toResponse(Product p) {
     return new ProductResponse(
-        p.getId(), p.getSku(), p.getName(), p.getDescription(), p.getPrice(), p.getCreatedAt());
+        p.getId(),
+        p.getSku(),
+        p.getName(),
+        p.getDescription(),
+        p.getPrice(),
+        p.getCategory(),
+        p.getCreatedAt());
   }
 }

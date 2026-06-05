@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useAuth } from './AuthContext';
+import { MOCK_PRODUCTS } from '@/app/utils/mockProducts';
 
 export interface CartItem {
   itemId: string;
@@ -30,13 +31,7 @@ interface CartContextType {
   clearLocalCart: () => void;
 }
 
-const SEEDED_PRODUCTS = [
-  { id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d', sku: 'PHONE-IP15', name: 'iPhone 15 Pro Max', price: 34990000.00 },
-  { id: 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e', sku: 'PHONE-SS24', name: 'Samsung Galaxy S24 Ultra', price: 31990000.00 },
-  { id: 'c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f', sku: 'LAPTOP-MBP', name: 'MacBook Pro 14"', price: 49990000.00 },
-  { id: 'd4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a', sku: 'HEADPHONE-APM', name: 'AirPods Max', price: 13490000.00 },
-  { id: 'e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a9b', sku: 'TABLET-IPD', name: 'iPad Pro 12.9"', price: 28990000.00 }
-];
+const SEEDED_PRODUCTS = MOCK_PRODUCTS;
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 

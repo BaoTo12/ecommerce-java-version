@@ -32,14 +32,70 @@ export default function NavigationWrapper() {
 
             {/* Desktop Nav */}
             <nav className="hidden md:flex items-center gap-6">
-              <Link
-                href="/"
-                className={`text-sm font-medium transition-colors hover:text-white ${
-                  isActive('/') ? 'text-indigo-400 font-semibold' : 'text-gray-400'
-                }`}
-              >
-                Products
-              </Link>
+              {/* Products Dropdown */}
+              <div className="relative group py-2">
+                <button
+                  className={`flex items-center gap-1 text-sm font-medium transition-colors hover:text-white cursor-pointer outline-none ${
+                    isActive('/') || pathname === '/' ? 'text-indigo-400 font-semibold' : 'text-gray-400'
+                  }`}
+                >
+                  Products
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="w-4 h-4 text-gray-500 group-hover:text-white transition-colors"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+                {/* Dropdown Menu */}
+                <div className="absolute left-0 mt-1 w-64 rounded-xl border border-white/10 bg-[#0d111d]/95 backdrop-blur-xl shadow-2xl p-2 hidden group-hover:block transition-all duration-300">
+                  <div className="space-y-1">
+                    <Link
+                      href="/"
+                      className="block px-4 py-2 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                    >
+                      All Products
+                    </Link>
+                    <div className="h-px bg-white/5 my-1" />
+                    <Link
+                      href="/?category=Laptops%20%26%20Computers"
+                      className="block px-4 py-2 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                    >
+                      Laptops & Computers
+                    </Link>
+                    <Link
+                      href="/?category=Phones%20%26%20Tablets"
+                      className="block px-4 py-2 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                    >
+                      Phones & Tablets
+                    </Link>
+                    <Link
+                      href="/?category=Audio%20%26%20Accessories"
+                      className="block px-4 py-2 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                    >
+                      Audio & Accessories
+                    </Link>
+                    <Link
+                      href="/?category=Cameras%20%26%20Drones"
+                      className="block px-4 py-2 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                    >
+                      Cameras & Drones
+                    </Link>
+                    <Link
+                      href="/?category=Gaming%20%26%20Entertainment"
+                      className="block px-4 py-2 text-xs font-semibold text-gray-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                    >
+                      Gaming & Entertainment
+                    </Link>
+                  </div>
+                </div>
+              </div>
               {user && (
                 <>
                   <Link

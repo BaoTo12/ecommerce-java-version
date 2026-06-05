@@ -13,17 +13,24 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
 
   Page<Product> findByIsActiveTrue(Pageable pageable);
 
+  long countByCategory(String category);
+
   // Edge Case #20 — Input Sanitization: Uses named parameter (:keyword) — Spring Data JPA generates
   // a parameterized query, preventing SQL injection. Using PostgreSQL Full-Text Search (FTS).
   @Query(
       value =
           "SELECT * FROM products WHERE is_active = true AND "
-              + "(:keyword IS NULL OR :keyword = '' OR search_vector @@ websearch_to_tsquery('english', :keyword))",
+              + "(:category IS NULL OR :category = '' OR category = :category) AND "
+              + "(:keyword IS NULL OR :keyword = '' OR LOWER(name) LIKE LOWER(CONCAT('%', :keyword, '%')) OR LOWER(description) LIKE LOWER(CONCAT('%', :keyword, '%')))",
       countQuery =
           "SELECT count(*) FROM products WHERE is_active = true AND "
-              + "(:keyword IS NULL OR :keyword = '' OR search_vector @@ websearch_to_tsquery('english', :keyword))",
+              + "(:category IS NULL OR :category = '' OR category = :category) AND "
+              + "(:keyword IS NULL OR :keyword = '' OR LOWER(name) LIKE LOWER(CONCAT('%', :keyword, '%')) OR LOWER(description) LIKE LOWER(CONCAT('%', :keyword, '%')))",
       nativeQuery = true)
-  Page<Product> searchActive(@Param("keyword") String keyword, Pageable pageable);
+  Page<Product> searchActive(
+      @Param("keyword") String keyword,
+      @Param("category") String category,
+      Pageable pageable);
 
   Optional<Product> findBySkuAndIsActiveTrue(String sku);
 }

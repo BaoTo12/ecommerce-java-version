@@ -38,7 +38,7 @@ interface NotificationLog {
 }
 
 function OrdersList() {
-  const { user, token } = useAuth();
+  const { user, token, isDemoMode } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -54,6 +54,18 @@ function OrdersList() {
 
   const fetchOrders = useCallback(async () => {
     if (!user || !token) return;
+
+    if (isDemoMode || token.startsWith('mock-')) {
+      const savedOrdersStr = localStorage.getItem('demo_orders_list');
+      if (savedOrdersStr) {
+        setOrders(JSON.parse(savedOrdersStr));
+      } else {
+        setOrders([]);
+      }
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       const res = await fetch(`/api/orders?userId=${user.id}`, {
@@ -78,7 +90,7 @@ function OrdersList() {
     } finally {
       setLoading(false);
     }
-  }, [user, token]);
+  }, [user, token, isDemoMode]);
 
   useEffect(() => {
     if (!user) {
@@ -91,6 +103,15 @@ function OrdersList() {
   const loadOrderDetails = async (orderId: string) => {
     if (selectedOrderId === orderId) {
       setSelectedOrderId(null);
+      return;
+    }
+
+    if (isDemoMode || (token && token.startsWith('mock-'))) {
+      setSelectedOrderId(orderId);
+      const savedHistory = localStorage.getItem(`demo_history_${orderId}`);
+      setOrderHistory(savedHistory ? JSON.parse(savedHistory) : []);
+      const savedNotifs = localStorage.getItem(`demo_notifs_${orderId}`);
+      setNotifs(savedNotifs ? JSON.parse(savedNotifs) : []);
       return;
     }
 
@@ -135,6 +156,21 @@ function OrdersList() {
 
   const handleCancelOrder = async (orderId: string) => {
     if (!confirm("Are you sure you want to request cancellation for this order?")) return;
+
+    if (isDemoMode || (token && token.startsWith('mock-'))) {
+      const savedOrdersStr = localStorage.getItem('demo_orders_list');
+      if (savedOrdersStr) {
+        const list = JSON.parse(savedOrdersStr);
+        const idx = list.findIndex((o: any) => o.id === orderId);
+        if (idx > -1) {
+          list[idx].status = 'CANCELLED';
+          localStorage.setItem('demo_orders_list', JSON.stringify(list));
+          setOrders(list);
+        }
+      }
+      return;
+    }
+
     try {
       const res = await fetch(`/api/orders/${orderId}`, {
         method: 'DELETE',

@@ -27,8 +27,9 @@ public class CatalogController {
     @GetMapping
     public Page<ProductResponse> listProducts(
             @RequestParam(required = false) @Size(max = 100) String keyword,
+            @RequestParam(required = false) @Size(max = 100) String category,
             @PageableDefault(size = 20) Pageable pageable) {
-        return catalogService.listProducts(keyword, pageable);
+        return catalogService.listProducts(keyword, category, pageable);
     }
 
     @GetMapping("/{productId}")

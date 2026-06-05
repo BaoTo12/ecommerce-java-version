@@ -46,6 +46,8 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/actuator/**")
                     .permitAll()
+                    .requestMatchers("/api/benchmark/**")
+                    .permitAll()
                     // Everything else requires authentication
                     .anyRequest()
                     .authenticated())

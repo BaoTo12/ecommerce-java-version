@@ -42,6 +42,10 @@ public class Product {
   private BigDecimal price;
 
   @Setter
+  @Column(name = "category", length = 100)
+  private String category;
+
+  @Setter
   @Column(name = "is_active", nullable = false)
   private boolean isActive = true;
 

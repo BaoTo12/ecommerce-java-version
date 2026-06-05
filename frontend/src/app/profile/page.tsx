@@ -17,7 +17,7 @@ interface Address {
 }
 
 export default function ProfilePage() {
-  const { user, token, updateProfileState, refreshProfile } = useAuth();
+  const { user, token, isDemoMode, updateProfileState, refreshProfile } = useAuth();
   const router = useRouter();
 
   // Profile Edit State
@@ -39,6 +39,32 @@ export default function ProfilePage() {
 
   const fetchAddresses = useCallback(async () => {
     if (!token) return;
+
+    if (isDemoMode || token.startsWith('mock-')) {
+      const savedAddrs = localStorage.getItem('demo_addresses');
+      if (savedAddrs) {
+        setAddresses(JSON.parse(savedAddrs));
+      } else {
+        const initial = [
+          {
+            id: 'demo-address-id-1',
+            label: 'Home',
+            addressLine1: '123 Nguyen Hue St',
+            addressLine2: '',
+            city: 'Ho Chi Minh City',
+            state: 'Ho Chi Minh City',
+            postalCode: '700000',
+            country: 'Vietnam',
+            isDefault: true
+          }
+        ];
+        localStorage.setItem('demo_addresses', JSON.stringify(initial));
+        setAddresses(initial);
+      }
+      setAddressesLoading(false);
+      return;
+    }
+
     try {
       setAddressesLoading(true);
       const res = await fetch('/api/users/me/addresses', {
@@ -53,7 +79,7 @@ export default function ProfilePage() {
     } finally {
       setAddressesLoading(false);
     }
-  }, [token]);
+  }, [token, isDemoMode]);
 
   useEffect(() => {
     if (!user) {
@@ -68,6 +94,16 @@ export default function ProfilePage() {
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
+
+    if (isDemoMode || token.startsWith('mock-')) {
+      setProfileLoading(true);
+      const updated = { ...user!, name, phone };
+      updateProfileState(updated);
+      setProfileSuccess(true);
+      setProfileLoading(false);
+      setTimeout(() => setProfileSuccess(false), 3000);
+      return;
+    }
 
     try {
       setProfileLoading(true);
@@ -97,6 +133,36 @@ export default function ProfilePage() {
   const handleSaveAddress = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || !line1 || !city || !postalCode) return;
+
+    if (isDemoMode || token.startsWith('mock-')) {
+      const makeDefault = addresses.length === 0;
+      let updatedList: Address[];
+      if (editingAddressId) {
+        updatedList = addresses.map(addr => addr.id === editingAddressId ? {
+          ...addr, label, addressLine1: line1, city, postalCode
+        } : addr);
+      } else {
+        const newAddr: Address = {
+          id: `demo-address-uuid-${Math.random().toString(36).substring(2, 11)}`,
+          label,
+          addressLine1: line1,
+          addressLine2: '',
+          city,
+          state: city,
+          postalCode,
+          country: 'Vietnam',
+          isDefault: makeDefault
+        };
+        updatedList = [...addresses, newAddr];
+      }
+      localStorage.setItem('demo_addresses', JSON.stringify(updatedList));
+      setAddresses(updatedList);
+      setEditingAddressId(null);
+      setLine1('');
+      setCity('');
+      setPostalCode('');
+      return;
+    }
 
     try {
       const url = editingAddressId 
@@ -144,6 +210,17 @@ export default function ProfilePage() {
 
   const handleDeleteAddress = async (addressId: string) => {
     if (!confirm("Are you sure you want to delete this address?")) return;
+
+    if (isDemoMode || (token && token.startsWith('mock-'))) {
+      const updatedList = addresses.filter(addr => addr.id !== addressId);
+      if (addresses.find(a => a.id === addressId)?.isDefault && updatedList.length > 0) {
+        updatedList[0].isDefault = true;
+      }
+      localStorage.setItem('demo_addresses', JSON.stringify(updatedList));
+      setAddresses(updatedList);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/users/me/addresses/${addressId}`, {
         method: 'DELETE',
