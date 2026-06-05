@@ -63,7 +63,7 @@ Look at the `checks` section in the k6 summary. You will see:
 ### 2. Run the Naïve ORM Benchmark (Retry Storm Strategy)
 Run the script passing `optimistic` as the strategy:
 ```bash
-k6 run -e STRATEGY=optimistic docs/benchmark.js
+k6 run -e STRATEGY=pessimistic docs/benchmark.js
 ```
 
 **Verbose k6 Output Analysis:**

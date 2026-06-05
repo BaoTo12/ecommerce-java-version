@@ -34,45 +34,33 @@ public class BenchmarkService {
     this.backoffMs = backoffMs;
   }
 
-  @Transactional
   public boolean executeBenchmarkCheckout(UUID productId, int quantity, String strategy) {
     if ("atomic".equalsIgnoreCase(strategy)) {
-      int updated = inventoryRepo.atomicDecrement(productId, quantity);
-      if (updated == 1) {
-        log.info("Benchmark atomic reserve success: product={}, qty={}", productId, quantity);
-        return true;
-      }
-      log.info("Benchmark atomic reserve failed (out of stock): product={}, qty={}", productId, quantity);
-      return false;
+      return self.doAtomicDecrement(productId, quantity);
+    } else if ("pessimistic".equalsIgnoreCase(strategy)) {
+      return self.doPessimisticReserveBenchmark(productId, quantity);
     } else {
-      // Optimistic lock retry strategy
-      return reserveWithOptimisticRetryBenchmark(productId, quantity);
+      // Fallback for legacy k6 scripts using 'optimistic' parameters
+      return self.doPessimisticReserveBenchmark(productId, quantity);
     }
   }
 
-  private boolean reserveWithOptimisticRetryBenchmark(UUID productId, int qty) {
-    for (int attempt = 1; attempt <= maxRetry; attempt++) {
-      try {
-        return self.doOptimisticReserveBenchmark(productId, qty);
-      } catch (ObjectOptimisticLockingFailureException e) {
-        log.warn(
-            "Benchmark Optimistic lock conflict: product={}, attempt={}/{}", productId, attempt, maxRetry);
-        if (attempt < maxRetry) {
-          sleep(backoffMs * attempt);
-        } else {
-          // Bubble up the exception on final failure so the load-testing tool registers the conflict failure
-          throw e;
-        }
-      }
+  @Transactional
+  public boolean doAtomicDecrement(UUID productId, int quantity) {
+    int updated = inventoryRepo.atomicDecrement(productId, quantity);
+    if (updated == 1) {
+      log.info("Benchmark atomic reserve success: product={}, qty={}", productId, quantity);
+      return true;
     }
+    log.info("Benchmark atomic reserve failed (out of stock): product={}, qty={}", productId, quantity);
     return false;
   }
 
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
-  public boolean doOptimisticReserveBenchmark(UUID productId, int qty) {
+  @Transactional
+  public boolean doPessimisticReserveBenchmark(UUID productId, int qty) {
     Inventory inv =
         inventoryRepo
-            .findById(productId)
+            .findByIdPessimisticWrite(productId)
             .orElseThrow(() -> ResourceNotFoundException.of("Inventory", productId));
 
     if (!inv.hasSufficientStock(qty)) {
@@ -80,8 +68,8 @@ public class BenchmarkService {
     }
 
     inv.reserve(qty);
-    inventoryRepo.saveAndFlush(inv); // Force Hibernate to execute SQL update and check version immediately
-    log.info("Benchmark optimistic reserve success: product={}, qty={}, version={}", productId, qty, inv.getVersion());
+    inventoryRepo.saveAndFlush(inv); // Force Hibernate to execute SQL update immediately, releasing pessimistic lock on commit
+    log.info("Benchmark pessimistic reserve success: product={}, qty={}", productId, qty);
     return true;
   }
 

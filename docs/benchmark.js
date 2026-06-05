@@ -55,13 +55,14 @@ export default function (data) {
     const res = http.post(url, payload, params);
 
     // Track response codes
-    if (strategy === 'atomic') {
+    if (strategy === 'atomic' || strategy === 'pessimistic') {
         check(res, {
             'HTTP status is 200 or 400': (r) => r.status === 200 || r.status === 400,
             'HTTP 200 (SUCCESS)': (r) => r.status === 200,
             'HTTP 400 (OUT OF STOCK)': (r) => r.status === 400,
         });
     } else {
+        // Fallback for optimistic
         check(res, {
             'HTTP status is 200 or 400 or 409': (r) => r.status === 200 || r.status === 400 || r.status === 409,
             'HTTP 200 (SUCCESS)': (r) => r.status === 200,
