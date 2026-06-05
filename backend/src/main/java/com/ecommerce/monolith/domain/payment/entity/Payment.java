@@ -9,14 +9,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/**
- * Payment entity.
- *
- * <p>Edge Case #3 — Pessimistic Locking: loaded with SELECT FOR UPDATE when processing to prevent
- * concurrent payment for same order. Edge Case #9 — Duplicate Payment Prevention: DB UNIQUE
- * constraint on order_id. Edge Case #10 — Refund State Machine: only CHARGED payments can be
- * refunded.
- */
 @Getter
 @Entity
 @Table(

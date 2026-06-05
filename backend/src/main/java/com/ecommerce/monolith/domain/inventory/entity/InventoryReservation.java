@@ -11,18 +11,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/**
- * Tracks inventory reservation attempts.
- *
- * <p>Edge Case #5 — Reservation TTL: When inventory is reserved for an order (RESERVE operation),
- * we set an `expires_at` timestamp. A scheduled job (InventoryExpiryJob) finds reservations past
- * their expiry that are still in PENDING/RESERVED state and releases the stock automatically.
- *
- * <p>Scenario: 1. User places order → inventory reserved, expires_at = now + 30min 2. User never
- * completes payment → order stuck in PAYMENT_PENDING 3. After 30min, InventoryExpiryJob runs: -
- * Finds this reservation - Releases the stock back - Marks the order as EXPIRED 4. The stock is
- * available for other customers again
- */
 @Getter
 @Setter
 @Entity
@@ -37,7 +25,6 @@ import lombok.Setter;
 @AllArgsConstructor
 public class InventoryReservation {
 
-  // ─── Getters ──────────────────────────────────────────────────────────────
   @Id
   @GeneratedValue(strategy = GenerationType.UUID)
   private UUID id;

@@ -9,20 +9,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-/**
- * Shopping cart item.
- *
- * <p>Edge Case #4 — Price Snapshot: When the user adds a product to the cart, we record the
- * product's current price in `price_snapshot`. This freezes the price the user saw.
- *
- * <p>At checkout time, we compare the live price (from ProductEntity) against price_snapshot. If
- * they differ by more than the configured tolerance (e.g. 1%), the checkout is rejected with a
- * PRICE_CHANGED error, prompting the user to review their cart.
- *
- * <p>Why this matters: Without price snapshotting, a flash sale could end between "Add to Cart" and
- * "Checkout" and the user would be charged the higher post-sale price without their knowledge. Or
- * vice versa: prices could increase and the customer unfairly gets the old lower price.
- */
 @Getter
 @Entity
 @Table(name = "cart_items")
@@ -31,7 +17,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class CartItem {
 
-  // ─── Getters ──────────────────────────────────────────────────────────────
   @Id
   @GeneratedValue(strategy = GenerationType.UUID)
   private UUID id;

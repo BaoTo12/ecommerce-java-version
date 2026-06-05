@@ -7,11 +7,6 @@ import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 
-/**
- * Product catalog entity. Edge Case #4: price field — when a user adds to cart, the cart item
- * captures a priceSnapshot from this field. At checkout, the current price is re-read and compared
- * against the snapshot.
- */
 @Getter
 @Entity
 @Table(

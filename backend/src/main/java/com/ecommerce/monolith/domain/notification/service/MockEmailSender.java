@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** Mock email sender. Replace with JavaMailSender / SendGrid / SES in production. */
 @Component
 public class MockEmailSender {
 

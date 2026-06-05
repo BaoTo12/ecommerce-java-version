@@ -2,6 +2,7 @@ package com.ecommerce.monolith.domain.notification.service;
 
 import com.ecommerce.monolith.domain.notification.entity.NotificationEntity;
 import com.ecommerce.monolith.domain.notification.repository.NotificationRepository;
+import com.ecommerce.monolith.domain.user.entity.User;
 import com.ecommerce.monolith.domain.user.repository.UserRepository;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -10,16 +11,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Notification Service
- *
- * <p>Edge Case #18 — Notification Deduplication: The OutboxPoller provides at-least-once delivery,
- * meaning the same event can be dispatched more than once (e.g., after an app restart or retry).
- * Without deduplication, a customer receives the same email twice.
- *
- * <p>Two-layer deduplication: Layer 1 (Application): findByOrderIdAndType() checks if already SENT.
- * Layer 2 (Database): UNIQUE(order_id, type) constraint catches race conditions.
- */
 @Service
 @Transactional
 public class NotificationService {
@@ -37,15 +28,6 @@ public class NotificationService {
     this.notificationRepo = notificationRepo;
     this.userRepo = userRepo;
     this.emailSender = emailSender;
-  }
-
-  public void sendOrderConfirmed(UUID orderId, UUID userId) {
-    sendNotification(
-        orderId,
-        userId,
-        "ORDER_CONFIRMED",
-        "Your order has been confirmed!",
-        "Your order #" + orderId + " has been confirmed.");
   }
 
   public void sendOrderCompleted(UUID orderId, UUID userId) {
@@ -86,10 +68,9 @@ public class NotificationService {
       log.info("Notification already sent: orderId={}, type={}", orderId, type);
       return; // idempotent — no double email
     }
-    // ────────────────────────────────────────────────────────────────────
 
     String recipientEmail =
-        userRepo.findById(userId).map(u -> u.getEmail()).orElse("unknown@example.com");
+        userRepo.findById(userId).map(User::getEmail).orElse("unknown@example.com");
 
     NotificationEntity notification;
     if (existing.isPresent()) {
@@ -110,7 +91,6 @@ public class NotificationService {
         log.info("Race condition dedup: orderId={}, type={}", orderId, type);
         return; // Another thread just inserted — ours is the duplicate
       }
-      // ────────────────────────────────────────────────────────────────
     }
 
     // Actually send the email

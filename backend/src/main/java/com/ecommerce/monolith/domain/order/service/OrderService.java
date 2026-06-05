@@ -50,13 +50,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Order management service (post-creation operations).
- *
- * <p>Edge Case #8 — State machine: cancellation goes through transitionTo() Edge Case #13 —
- * Read-after-write: listOrders returns @Transactional(readOnly=true) ensuring consistent snapshot
- * reads
- */
+
 @Slf4j
 @Service
 @Transactional

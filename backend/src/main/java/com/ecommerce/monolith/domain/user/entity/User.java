@@ -11,12 +11,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/**
- * User entity
- *
- * <p>Edge Case #6 — Soft Delete: is_active flag. Deleted users keep their order history. Edge Case
- * #15 — Token Version: token_version incremented on password change / logout-all.
- */
 @Entity
 @Table(
     name = "users",
@@ -56,10 +50,6 @@ public class User {
   @Column(name = "token_version", nullable = false)
   private int tokenVersion = 0;
 
-  // Edge Case #6 — Soft Delete: Instead of physically deleting the user (which would break FK
-  // constraints on orders, carts, etc.), we set isActive = false. - Login is rejected for inactive
-  // users. - Orders are preserved for audit/legal purposes. - The user's PII can be anonymized
-  // separately (GDPR compliance).
   @Builder.Default
   @Column(name = "is_active", nullable = false)
   private boolean isActive = true;
@@ -89,8 +79,6 @@ public class User {
     this.updatedAt = Instant.now();
   }
 
-  // Edge Case #15: Changing password invalidates all existing sessions. Old access tokens with the
-  // previous token_version are rejected.
   public void changePassword(String newHashedPassword) {
     this.hashedPassword = newHashedPassword;
     this.tokenVersion++; // ← all existing JWTs instantly invalidated

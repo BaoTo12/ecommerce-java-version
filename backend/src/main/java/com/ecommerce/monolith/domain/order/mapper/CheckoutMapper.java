@@ -6,5 +6,5 @@ import org.mapstruct.Mapper;
 
 @Mapper(componentModel = "spring")
 public interface CheckoutMapper {
-  CheckoutSessionResponse toCheckoutSessionResponse(CheckoutSession checkoutSession);
+    CheckoutSessionResponse toCheckoutSessionResponse(CheckoutSession checkoutSession);
 }

@@ -47,5 +47,5 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID> {
         WHERE product_id = :productId
         """,
       nativeQuery = true)
-  int atomicIncrement(UUID productId, int amount);
+  void atomicIncrement(UUID productId, int amount);
 }

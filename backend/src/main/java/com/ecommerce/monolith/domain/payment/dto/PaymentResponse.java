@@ -5,9 +5,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record PaymentResponse(
-    UUID orderId,
-    String status,
-    BigDecimal amount,
-    String failureReason,
-    Instant createdAt,
-    Instant updatedAt) {}
+        UUID orderId,
+        String status,
+        BigDecimal amount,
+        String failureReason,
+        Instant createdAt,
+        Instant updatedAt) {
+}

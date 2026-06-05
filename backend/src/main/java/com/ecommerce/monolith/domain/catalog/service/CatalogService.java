@@ -11,10 +11,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-/**
- * Catalog Service — product browse / search. Edge Case #20: keyword trimmed and length-validated
- * before use.
- */
 @Service
 @Transactional(readOnly = true)
 public class CatalogService {

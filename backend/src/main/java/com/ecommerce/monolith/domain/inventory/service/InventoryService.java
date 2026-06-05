@@ -22,13 +22,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Inventory Service
- *
- * <p>Edge Case #2 — Optimistic Locking with Retry (standard traffic) Edge Case #5 — Reservation TTL
- * (expiry job auto-releases held stock) Edge Case #14 — Atomic SQL Decrement (flash sale / high
- * concurrency)
- */
 @Service
 public class InventoryService {
 
@@ -90,8 +83,6 @@ public class InventoryService {
         log.info("Atomic reserve: product={}, qty={}, order={}", productId, quantity, orderId);
         continue;
       }
-      // ─────────────────────────────────────────────────────────────────
-
       // ─── Edge Case #2: Fall back to optimistic locking with retry ─────
       boolean success = reserveWithOptimisticRetry(orderId, productId, quantity, expiresAt);
       if (!success) {
@@ -100,7 +91,6 @@ public class InventoryService {
         throw new BusinessRuleViolationException("Insufficient stock for product: " + productId);
       }
       reservedProducts.add(productId);
-      // ─────────────────────────────────────────────────────────────────
     }
   }
 
@@ -180,7 +170,7 @@ public class InventoryService {
         .orElseThrow(() -> ResourceNotFoundException.of("Inventory", productId));
   }
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
+  // helpers
 
   private void rollback(UUID orderId, List<UUID> reservedProductIds) {
     for (UUID productId : reservedProductIds) {
