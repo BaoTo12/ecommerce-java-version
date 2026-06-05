@@ -1,7 +1,7 @@
 package com.ecommerce.monolith.domain.order.repository;
 
-import com.ecommerce.monolith.domain.order.entity.Order;
 import com.ecommerce.monolith.common.status.OrderStatus;
+import com.ecommerce.monolith.domain.order.entity.Order;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -35,16 +35,12 @@ import org.springframework.data.jpa.repository.Query;
  */
 public interface OrderRepository extends JpaRepository<Order, UUID> {
 
-  /**
-   * Edge Case #23: Pagination-safe N+1 fix. Step 1: Get paginated order IDs only (fast, no join).
-   */
+  // Edge Case #23: Pagination-safe N+1 fix. Step 1: Get paginated order IDs only (fast, no join).
   @Query("SELECT o.id FROM Order o WHERE o.userId = :userId ORDER BY o.createdAt DESC")
   Page<UUID> findOrderIdsByUserId(UUID userId, Pageable pageable);
 
-  /**
-   * Edge Case #23: Step 2: Fetch full orders with items for those IDs. JOIN FETCH without
-   * pagination — no memory explosion risk.
-   */
+  // Edge Case #23: Step 2: Fetch full orders with items for those IDs. JOIN FETCH without
+  // pagination — no memory explosion risk.
   @Query("SELECT DISTINCT o FROM Order o LEFT JOIN FETCH o.items WHERE o.id IN :ids")
   java.util.List<Order> findByIdsWithItems(java.util.List<UUID> ids);
 
@@ -56,6 +52,6 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
   Page<Order> findByUserIdAndStatus(UUID userId, OrderStatus status, Pageable pageable);
 
-  /** Edge Case #1 — Idempotency: find an existing order by idempotency key. */
+  // Edge Case #1 — Idempotency: find an existing order by idempotency key.
   Optional<Order> findByIdempotencyKey(UUID idempotencyKey);
 }

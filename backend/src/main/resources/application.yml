@@ -18,6 +18,9 @@ spring:
     name: ecommerce-monolith
   lifecycle:
     timeout-per-shutdown-phase: 30s
+  output:
+    ansi:
+      enabled: always
 
   # Edge Case #28 — Large Payload Protection (Spring MVC layer)
   servlet:
@@ -136,12 +139,13 @@ app:
 
 logging:
   level:
-    com.ecommerce: DEBUG
+    com.ecommerce: INFO
     # Edge Case #24 — Connection Pool Exhaustion: log Hikari pool events
     com.zaxxer.hikari: INFO
-    com.zaxxer.hikari.HikariPool: DEBUG
+    com.zaxxer.hikari.HikariPool: INFO
     # Edge Case #23 — N+1 Detection: set to DEBUG in dev to see all SQL
     org.hibernate.SQL: WARN
     org.hibernate.stat: WARN
   pattern:
-    console: '{"timestamp":"%d{yyyy-MM-dd HH:mm:ss.SSS}","level":"%-5level","service":"monolith","correlationId":"%X{correlationId:-}","userId":"%X{userId:-}","orderId":"%X{orderId:-}","message":"%msg"}%n'
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+

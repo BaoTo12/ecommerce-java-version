@@ -2,12 +2,14 @@ package com.ecommerce.monolith.domain.inventory.entity;
 
 import com.ecommerce.monolith.common.status.InventoryReservationStatus;
 import jakarta.persistence.*;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
-
-import java.time.Instant;
-import java.util.UUID;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 /**
  * Tracks inventory reservation attempts.
@@ -22,6 +24,7 @@ import java.util.UUID;
  * available for other customers again
  */
 @Getter
+@Setter
 @Entity
 @Table(
     name = "inventory_reservations",
@@ -30,11 +33,12 @@ import java.util.UUID;
       @Index(name = "idx_inv_res_expiry", columnList = "expires_at, status")
     })
 @Builder
+@NoArgsConstructor
 @AllArgsConstructor
 public class InventoryReservation {
 
-    // ─── Getters ──────────────────────────────────────────────────────────────
-    @Id
+  // ─── Getters ──────────────────────────────────────────────────────────────
+  @Id
   @GeneratedValue(strategy = GenerationType.UUID)
   private UUID id;
 
@@ -59,54 +63,19 @@ public class InventoryReservation {
   @Column(name = "failure_reason", length = 200)
   private String failureReason;
 
-  /**
-   * Edge Case #5 — TTL: If this reservation is not confirmed (payment succeeds) before expires_at,
-   * the InventoryExpiryJob will release the held stock.
-   */
+  @Builder.Default
   @Column(name = "expires_at")
-  private Instant expiresAt;
+  private Instant expiresAt = Instant.now().plus(30, ChronoUnit.MINUTES);
 
   @Column(name = "released_at")
   private Instant releasedAt;
 
+  @Builder.Default
   @Column(name = "created_at", nullable = false, updatable = false)
-  private Instant createdAt;
-
-  protected InventoryReservation() {}
-
-  public static InventoryReservation reserved(
-      UUID orderId, UUID productId, int quantity, Instant expiresAt) {
-    InventoryReservation r = new InventoryReservation();
-    r.orderId = orderId;
-    r.productId = productId;
-    r.quantity = quantity;
-    r.status = InventoryReservationStatus.SUCCEED;
-    r.operation = "RESERVE";
-    r.expiresAt = expiresAt;
-    r.createdAt = Instant.now();
-    return r;
-  }
-
-  public static InventoryReservation failed(
-     UUID orderId, UUID productId, int quantity, String reason) {
-    InventoryReservation r = new InventoryReservation();
-    r.orderId = orderId;
-    r.productId = productId;
-    r.quantity = quantity;
-    r.status = InventoryReservationStatus.FAILED;
-    r.operation = "RESERVE";
-    r.failureReason = reason;
-    r.createdAt = Instant.now();
-    return r;
-  }
+  private Instant createdAt = Instant.now();
 
   public void markReleased() {
     this.status = InventoryReservationStatus.FAILED;
     this.releasedAt = Instant.now();
   }
-
-  public boolean isExpired() {
-    return expiresAt != null && Instant.now().isAfter(expiresAt) && releasedAt == null;
-  }
-
 }

@@ -10,16 +10,14 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface CartRepository extends JpaRepository<Cart, UUID> {
 
-  @Query("SELECT c FROM Cart c WHERE c.userId = :userId AND c.status = 'ACTIVE'")
+  @Query("SELECT c FROM Cart c WHERE c.userId = :userId")
   Optional<Cart> findActiveByUserId(UUID userId);
 
-  /**
-   * Edge Case #7 — Concurrent Cart Modification: SELECT ... FOR UPDATE on the cart row. When two
-   * requests try to modify the same cart simultaneously: - Request A gets the lock, proceeds -
-   * Request B waits at this query until A commits - Request B then sees A's changes and makes its
-   * own modification This prevents lost updates where one change silently overwrites another.
-   */
+  // Edge Case #7 — Concurrent Cart Modification: SELECT ... FOR UPDATE on the cart row. When two
+  // requests try to modify the same cart simultaneously: - Request A gets the lock, proceeds -
+  // Request B waits at this query until A commits - Request B then sees A's changes and makes its
+  // own modification This prevents lost updates where one change silently overwrites another.
   @Lock(LockModeType.PESSIMISTIC_WRITE)
-  @Query("SELECT c FROM Cart c WHERE c.userId = :userId AND c.status = 'ACTIVE'")
+  @Query("SELECT c FROM Cart c WHERE c.userId = :userId")
   Optional<Cart> findActiveByUserIdForUpdate(UUID userId);
 }

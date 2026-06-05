@@ -1,9 +1,9 @@
 package com.ecommerce.monolith.domain.user.controller;
 
+import com.ecommerce.monolith.common.security.SecurityUtils;
 import com.ecommerce.monolith.domain.user.dto.*;
 import com.ecommerce.monolith.domain.user.service.AuthService;
 import com.ecommerce.monolith.domain.user.service.UserService;
-import com.ecommerce.monolith.common.security.SecurityUtils;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
@@ -33,21 +33,21 @@ public class UserController {
     return userService.updateProfile(req);
   }
 
-  /** Edge Case #15: Change password → all sessions invalidated */
+  // Edge Case #15: Change password → all sessions invalidated
   @PostMapping("/me/change-password")
   public ResponseEntity<Void> changePassword(@Valid @RequestBody ChangePasswordRequest req) {
     authService.changePassword(SecurityUtils.getCurrentUserId(), req);
     return ResponseEntity.noContent().build();
   }
 
-  /** Edge Case #15: Logout from ALL devices → all sessions invalidated */
+  // Edge Case #15: Logout from ALL devices → all sessions invalidated
   @PostMapping("/me/logout-all")
   public ResponseEntity<Void> logoutAll() {
     authService.logoutAll(SecurityUtils.getCurrentUserId());
     return ResponseEntity.noContent().build();
   }
 
-  /** Edge Case #6: Soft delete — preserves order history */
+  // Edge Case #6: Soft delete — preserves order history
   @DeleteMapping("/me")
   public ResponseEntity<Void> deleteAccount() {
     userService.deleteAccount(SecurityUtils.getCurrentUserId());

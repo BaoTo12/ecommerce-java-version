@@ -1,16 +1,17 @@
 package com.ecommerce.monolith.domain.user.service;
 
+import com.ecommerce.monolith.common.exception.ResourceNotFoundException;
+import com.ecommerce.monolith.common.exception.ResourceOwnershipException;
+import com.ecommerce.monolith.common.security.SecurityUtils;
 import com.ecommerce.monolith.domain.user.dto.AddressRequest;
 import com.ecommerce.monolith.domain.user.dto.AddressResponse;
 import com.ecommerce.monolith.domain.user.dto.UpdateProfileRequest;
 import com.ecommerce.monolith.domain.user.dto.UserProfileResponse;
-import com.ecommerce.monolith.domain.user.entity.UserAddressEntity;
-import com.ecommerce.monolith.domain.user.entity.UserEntity;
+import com.ecommerce.monolith.domain.user.entity.User;
+import com.ecommerce.monolith.domain.user.entity.UserAddress;
 import com.ecommerce.monolith.domain.user.repository.UserAddressRepository;
 import com.ecommerce.monolith.domain.user.repository.UserRepository;
-import com.ecommerce.monolith.common.exception.ResourceNotFoundException;
-import com.ecommerce.monolith.common.exception.ResourceOwnershipException;
-import com.ecommerce.monolith.common.security.SecurityUtils;
+import com.ecommerce.monolith.domain.user.mapper.UserMapper;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -28,31 +29,33 @@ public class UserService {
 
   private final UserRepository userRepo;
   private final UserAddressRepository addressRepo;
+  private final UserMapper userMapper;
 
-  public UserService(UserRepository userRepo, UserAddressRepository addressRepo) {
+  public UserService(UserRepository userRepo, UserAddressRepository addressRepo, UserMapper userMapper) {
     this.userRepo = userRepo;
     this.addressRepo = addressRepo;
+    this.userMapper = userMapper;
   }
 
   @Transactional(readOnly = true)
   public UserProfileResponse getProfile() {
     UUID userId = SecurityUtils.getCurrentUserId();
-    UserEntity user =
+    User user =
         userRepo
             .findActiveById(userId)
             .orElseThrow(() -> ResourceNotFoundException.of("User", userId));
-    return toProfileResponse(user);
+    return userMapper.toProfileResponse(user);
   }
 
   public UserProfileResponse updateProfile(UpdateProfileRequest req) {
     UUID userId = SecurityUtils.getCurrentUserId();
-    UserEntity user =
+    User user =
         userRepo
             .findActiveById(userId)
             .orElseThrow(() -> ResourceNotFoundException.of("User", userId));
     user.updateProfile(req.name(), req.phone());
     userRepo.save(user);
-    return toProfileResponse(user);
+    return userMapper.toProfileResponse(user);
   }
 
   /**
@@ -61,7 +64,7 @@ public class UserService {
    * payment records are preserved for auditing.
    */
   public void deleteAccount(UUID userId) {
-    UserEntity user =
+    User user =
         userRepo
             .findActiveById(userId)
             .orElseThrow(() -> ResourceNotFoundException.of("User", userId));
@@ -74,31 +77,32 @@ public class UserService {
   @Transactional(readOnly = true)
   public List<AddressResponse> getAddresses() {
     UUID userId = SecurityUtils.getCurrentUserId();
-    return addressRepo.findByUserId(userId).stream().map(this::toAddressResponse).toList();
+    return addressRepo.findByUserId(userId).stream().map(userMapper::toAddressResponse).toList();
   }
 
   public AddressResponse addAddress(AddressRequest req) {
     UUID userId = SecurityUtils.getCurrentUserId();
-    UserEntity user =
+    User user =
         userRepo
             .findActiveById(userId)
             .orElseThrow(() -> ResourceNotFoundException.of("User", userId));
 
-    UserAddressEntity addr =
-        UserAddressEntity.create(
-            user,
-            req.label(),
-            req.addressLine1(),
-            req.city(),
-            req.postalCode(),
-            req.country(),
-            req.isDefault());
+    UserAddress addr =
+        UserAddress.builder()
+            .user(user)
+            .label(req.label())
+            .addressLine1(req.addressLine1())
+            .city(req.city())
+            .postalCode(req.postalCode())
+            .country(req.country())
+            .isDefault(req.isDefault())
+            .build();
     addressRepo.save(addr);
-    return toAddressResponse(addr);
+    return userMapper.toAddressResponse(addr);
   }
 
   public AddressResponse updateAddress(UUID addressId, AddressRequest req) {
-    UserAddressEntity addr = loadAddressAndVerifyOwnership(addressId);
+    UserAddress addr = loadAddressAndVerifyOwnership(addressId);
     addr.update(
         req.label(),
         req.addressLine1(),
@@ -107,11 +111,11 @@ public class UserService {
         req.country(),
         req.isDefault());
     addressRepo.save(addr);
-    return toAddressResponse(addr);
+    return userMapper.toAddressResponse(addr);
   }
 
   public void deleteAddress(UUID addressId) {
-    UserAddressEntity addr = loadAddressAndVerifyOwnership(addressId);
+    UserAddress addr = loadAddressAndVerifyOwnership(addressId);
     addressRepo.delete(addr);
   }
 
@@ -120,9 +124,9 @@ public class UserService {
    * authenticated user. Prevents users from reading/modifying/using other users' addresses. Used in
    * checkout to validate the shipping address.
    */
-  public UserAddressEntity loadAddressAndVerifyOwnership(UUID addressId) {
+  public UserAddress loadAddressAndVerifyOwnership(UUID addressId) {
     UUID currentUserId = SecurityUtils.getCurrentUserId();
-    UserAddressEntity addr =
+    UserAddress addr =
         addressRepo
             .findById(addressId)
             .orElseThrow(() -> ResourceNotFoundException.of("Address", addressId));
@@ -133,21 +137,5 @@ public class UserService {
     return addr;
   }
 
-  // ─── Mappers ──────────────────────────────────────────────────────────────
 
-  private UserProfileResponse toProfileResponse(UserEntity u) {
-    return new UserProfileResponse(
-        u.getId(), u.getEmail(), u.getName(), u.getPhone(), u.getCreatedAt());
-  }
-
-  private AddressResponse toAddressResponse(UserAddressEntity a) {
-    return new AddressResponse(
-        a.getId(),
-        a.getLabel(),
-        a.getAddressLine1(),
-        a.getCity(),
-        a.getPostalCode(),
-        a.getCountry(),
-        a.isDefault());
-  }
 }

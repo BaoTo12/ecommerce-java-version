@@ -89,17 +89,13 @@ CREATE TABLE IF NOT EXISTS carts
 (
     id         UUID PRIMARY KEY     DEFAULT gen_random_uuid(),
     user_id    UUID        NOT NULL,
-    status     VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT fk_carts_user
         FOREIGN KEY (user_id)
             REFERENCES users (id)
-            ON DELETE CASCADE,
-
-    CONSTRAINT chk_carts_status
-        CHECK (status IN ('ACTIVE', 'CHECKED_OUT', 'ABANDONED'))
+            ON DELETE CASCADE
 );
 
 -- CART ITEMS
@@ -180,6 +176,7 @@ CREATE TABLE IF NOT EXISTS checkout_sessions
     user_id         UUID           NOT NULL,
     cart_id         UUID           NOT NULL,
     total_amount    NUMERIC(15, 2) NOT NULL,
+    expires_at     TIMESTAMPTZ,
     status          VARCHAR(50)    NOT NULL DEFAULT 'CREATED',
     order_id        UUID UNIQUE,
     response_body   TEXT,
@@ -232,7 +229,6 @@ CREATE TABLE IF NOT EXISTS order_items
     product_id   UUID           NOT NULL,
     product_name VARCHAR(255)   NOT NULL,
     quantity     INT            NOT NULL,
-    unit_price   NUMERIC(15, 2) NOT NULL,
     created_at   TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
 
     CONSTRAINT fk_order_items_order
@@ -246,10 +242,7 @@ CREATE TABLE IF NOT EXISTS order_items
             ON DELETE RESTRICT,
 
     CONSTRAINT chk_order_items_quantity_positive
-        CHECK (quantity > 0),
-
-    CONSTRAINT chk_order_items_unit_price_non_negative
-        CHECK (unit_price >= 0)
+        CHECK (quantity > 0)
 );
 
 -- PAYMENTS
@@ -297,7 +290,6 @@ CREATE TABLE IF NOT EXISTS inventory_reservations
     quantity       INT         NOT NULL,
     operation      VARCHAR(50) NOT NULL,
     status         VARCHAR(50) NOT NULL DEFAULT 'HOLDING',
-    expires_at     TIMESTAMPTZ,
     released_at    TIMESTAMPTZ,
     failure_reason VARCHAR(500),
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),

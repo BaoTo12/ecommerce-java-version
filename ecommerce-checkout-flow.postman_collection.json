@@ -1,0 +1,961 @@
+{
+  "info": {
+    "_postman_id": "3b4f65c9-122e-4b6a-8dcd-97b77ab1cfc6",
+    "name": "E-Commerce Monolith Checkout Flow",
+    "description": "Postman Collection for testing the full Checkout Session & Payment Execution Flow in the E-Commerce Java Monolith application. Make sure the Spring Boot application is running on http://localhost:8080.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Authentication & Account Setup",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.accessToken) {",
+                  "    pm.collectionVariables.set(\"accessToken\", jsonData.accessToken);",
+                  "}",
+                  "if (jsonData.refreshToken) {",
+                  "    pm.collectionVariables.set(\"refreshToken\", jsonData.refreshToken);",
+                  "}",
+                  "if (jsonData.userId) {",
+                  "    pm.collectionVariables.set(\"userId\", jsonData.userId);",
+                  "}",
+                  "pm.test(\"Login successful\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(jsonData.accessToken).to.not.be.undefined;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@ecommerce.com\",\n  \"password\": \"secret123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Log in with the seeded user (user@ecommerce.com / secret123). Saves the access token and user ID dynamically to collection variables."
+          },
+          "response": []
+        },
+        {
+          "name": "Register New User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"new_tester@ecommerce.com\",\n  \"password\": \"secret123\",\n  \"name\": \"New Tester\",\n  \"phone\": \"0987654321\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Register a new user to test from a clean state. Make sure to update the email in the Login request or use this response."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Profile Info",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "Retrieve current logged in user details."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Default Address",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"Home Address\",\n  \"addressLine1\": \"123 Test Street\",\n  \"addressLine2\": \"Apartment 4B\",\n  \"city\": \"Hanoi\",\n  \"state\": \"Hanoi\",\n  \"postalCode\": \"100000\",\n  \"country\": \"Vietnam\",\n  \"isDefault\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me/addresses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "addresses"
+              ]
+            },
+            "description": "Checkout flow requires a default shipping address. If testing with a new user, call this to create one."
+          },
+          "response": []
+        },
+        {
+          "name": "List Addresses",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me/addresses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me",
+                "addresses"
+              ]
+            },
+            "description": "Get all addresses for the logged-in user."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Catalog & Cart Setup",
+      "item": [
+        {
+          "name": "List Catalog (Fetch Product ID)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.content && jsonData.content.length > 0) {",
+                  "    pm.collectionVariables.set(\"productId\", jsonData.content[0].id);",
+                  "}",
+                  "pm.test(\"Catalog retrieved\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/catalog",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "catalog"
+              ]
+            },
+            "description": "Lists seeded products in catalog and automatically grabs the first product ID to set `productId` variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Cart Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.cartId) {",
+                  "    pm.collectionVariables.set(\"cartId\", jsonData.cartId);",
+                  "}",
+                  "if (jsonData.totalAmount !== undefined) {",
+                  "    pm.collectionVariables.set(\"totalAmount\", jsonData.totalAmount);",
+                  "}",
+                  "if (jsonData.items && jsonData.items.length > 0) {",
+                  "    pm.collectionVariables.set(\"cartItemId\", jsonData.items[0].itemId);",
+                  "}",
+                  "pm.test(\"Cart retrieved\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cart"
+              ]
+            },
+            "description": "Retrieves the active cart, settings `cartId`, `totalAmount`, and the first `cartItemId` as variables."
+          },
+          "response": []
+        },
+        {
+          "name": "Add Product to Cart",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"quantity\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/cart/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cart",
+                "items"
+              ]
+            },
+            "description": "Adds a product (using `productId` variable) to the user's active cart. Note that prices are snapshotted at cart-addition time."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Cart Item Quantity",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cart/items/{{cartItemId}}?quantity=3",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cart",
+                "items",
+                "{{cartItemId}}"
+              ],
+              "query": [
+                {
+                  "key": "quantity",
+                  "value": "3"
+                }
+              ]
+            },
+            "description": "Updates the quantity of the item in the cart."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Cart Item",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cart/items/{{cartItemId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cart",
+                "items",
+                "{{cartItemId}}"
+              ]
+            },
+            "description": "Removes a specific item from the cart."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Checkout Session & Flow",
+      "item": [
+        {
+          "name": "Create Checkout Session",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.idempotencyKey) {",
+                  "    pm.collectionVariables.set(\"idempotencyKey\", jsonData.idempotencyKey);",
+                  "}",
+                  "pm.test(\"Session created successfully\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(jsonData.status).to.equal(\"CREATED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cartId\": \"{{cartId}}\",\n  \"totalAmount\": \"{{totalAmount}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/checkout/session",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "checkout",
+                "session"
+              ]
+            },
+            "description": "Phase 1: Checks inventory, locks stock by generating holding reservations (with a 15-minute TTL), and issues a checkout session containing an `idempotencyKey` that serves as the checkout session identifier."
+          },
+          "response": []
+        },
+        {
+          "name": "Execute Payment (Default Seeded Card)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.orderId) {",
+                  "    pm.collectionVariables.set(\"orderId\", jsonData.orderId);",
+                  "}",
+                  "pm.test(\"Payment succeeded & order created\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(jsonData.status).to.equal(\"SUCCESS\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/checkout/execute",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "checkout",
+                "execute"
+              ]
+            },
+            "description": "Phase 2 & 3: Processes payment. Passing an empty body `{}` uses the default registered payment card seeded in the DB (`4242424242424242` / `John Doe`). Spawns a database transaction, invokes the mock gateway, marks order as PAID, completes reservations, and removes checked-out items from the user's cart."
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Cart is Empty after Success",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.test(\"Cart is cleared of checked-out items\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(jsonData.items.length).to.equal(0);",
+                  "    pm.expect(parseFloat(jsonData.totalAmount)).to.equal(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cart"
+              ]
+            },
+            "description": "Verifies that the items checked out successfully have been removed from the cart (cart total should be 0 and items array should be empty)."
+          },
+          "response": []
+        },
+        {
+          "name": "Execute Payment (Custom Card / Success Strategy)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.orderId) {",
+                  "    pm.collectionVariables.set(\"orderId\", jsonData.orderId);",
+                  "}",
+                  "pm.test(\"Payment succeeded\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(jsonData.status).to.equal(\"SUCCESS\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cardNumber\": \"4242424242424242\",\n  \"cvc\": \"123\",\n  \"cardName\": \"John Doe\",\n  \"expiry\": \"12/28\",\n  \"strategy\": \"SUCCEED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/checkout/execute",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "checkout",
+                "execute"
+              ]
+            },
+            "description": "Execute payment with a custom card body and explicitly select the success strategy. Note: You must recreate a checkout session first to obtain a fresh idempotencyKey."
+          },
+          "response": []
+        },
+        {
+          "name": "Execute Payment (Declined Card Edge Case)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Payment declined\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.message).to.include(\"Payment failed: CARD_DECLINED\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cardNumber\": \"4000000000000002\",\n  \"cvc\": \"123\",\n  \"cardName\": \"Declined Card\",\n  \"expiry\": \"12/28\",\n  \"strategy\": \"DECLINED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/checkout/execute",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "checkout",
+                "execute"
+              ]
+            },
+            "description": "Tests the payment failure edge case by passing a card number seeded to decline (`4000000000000002`) or setting strategy = `DECLINED`. Note: Recreate a fresh checkout session to test this request."
+          },
+          "response": []
+        },
+        {
+          "name": "Execute Payment (Insufficient Funds Edge Case)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Insufficient Funds\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.message).to.include(\"Payment failed: INSUFFICIENT_FUNDS\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cardNumber\": \"4000000000003022\",\n  \"cvc\": \"123\",\n  \"cardName\": \"Low Balance Card\",\n  \"expiry\": \"12/28\",\n  \"strategy\": \"INSUFFICIENT_FUNDS\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/checkout/execute",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "checkout",
+                "execute"
+              ]
+            },
+            "description": "Tests checkout failure due to insufficient card balance. Use a new checkout session."
+          },
+          "response": []
+        },
+        {
+          "name": "Execute Payment (Expired Card Edge Case)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Expired Card\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.message).to.include(\"Payment failed: EXPIRED_CARD\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cardNumber\": \"4000000000000115\",\n  \"cvc\": \"123\",\n  \"cardName\": \"Expired Card\",\n  \"expiry\": \"12/28\",\n  \"strategy\": \"EXPIRED_CARD\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/checkout/execute",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "checkout",
+                "execute"
+              ]
+            },
+            "description": "Tests checkout failure due to an expired card. Use a new checkout session."
+          },
+          "response": []
+        },
+        {
+          "name": "Execute Payment (Incorrect CVC Edge Case)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Incorrect CVC\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.message).to.include(\"Payment failed: INCORRECT_CVC\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cardNumber\": \"4000000000000123\",\n  \"cvc\": \"999\",\n  \"cardName\": \"Incorrect CVC Card\",\n  \"expiry\": \"12/28\",\n  \"strategy\": \"INCORRECT_CVC\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders/checkout/execute",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "checkout",
+                "execute"
+              ]
+            },
+            "description": "Tests checkout failure due to incorrect CVC input. Use a new checkout session."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Order & Payment Queries",
+      "item": [
+        {
+          "name": "List My Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders?page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Retrieves the list of orders belonging to the authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Order Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}"
+              ]
+            },
+            "description": "Retrieves the full details (status, products, subtotal) of a single order (using `orderId` variable)."
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Order",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}"
+              ]
+            },
+            "description": "Cancels a pending order. Rejects cancellations for completed/paid orders with HTTP 409 (conflict)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Payment Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/payments/order/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments",
+                "order",
+                "{{orderId}}"
+              ]
+            },
+            "description": "Fetches payment transaction information linked to a specific order ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Refund Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Item was defective\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/payments/order/{{orderId}}/refund",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments",
+                "order",
+                "{{orderId}}",
+                "refund"
+              ]
+            },
+            "description": "Refunds a charged payment. Rejects second calls using a cached idempotent result (State Machine)."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "productId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cartId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cartItemId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "totalAmount",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "idempotencyKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

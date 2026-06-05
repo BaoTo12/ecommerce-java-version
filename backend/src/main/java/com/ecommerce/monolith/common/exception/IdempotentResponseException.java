@@ -1,9 +1,12 @@
 package com.ecommerce.monolith.common.exception;
 
+import lombok.Getter;
+
 /**
  * Edge Case #1: Thrown when an idempotent cached response should be returned. The
  * GlobalExceptionHandler catches this and returns the cached payload.
  */
+@Getter
 public class IdempotentResponseException extends RuntimeException {
   private final String key;
   private final int originalStatus;
@@ -16,15 +19,4 @@ public class IdempotentResponseException extends RuntimeException {
     this.cachedBody = cachedBody;
   }
 
-  public String getKey() {
-    return key;
-  }
-
-  public int getOriginalStatus() {
-    return originalStatus;
-  }
-
-  public Object getCachedBody() {
-    return cachedBody;
-  }
 }

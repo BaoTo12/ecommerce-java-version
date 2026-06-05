@@ -1,9 +1,9 @@
 package com.ecommerce.monolith.domain.catalog.service;
 
+import com.ecommerce.monolith.common.exception.ResourceNotFoundException;
 import com.ecommerce.monolith.domain.catalog.dto.ProductResponse;
 import com.ecommerce.monolith.domain.catalog.entity.Product;
 import com.ecommerce.monolith.domain.catalog.repository.ProductRepository;
-import com.ecommerce.monolith.common.exception.ResourceNotFoundException;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;

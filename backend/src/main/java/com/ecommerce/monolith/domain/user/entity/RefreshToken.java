@@ -3,6 +3,10 @@ package com.ecommerce.monolith.domain.user.entity;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 /**
  * Refresh token stored as a SHA-256 hash. The raw token is only given to the client; we never store
@@ -18,7 +22,11 @@ import java.util.UUID;
       @Index(name = "idx_refresh_user", columnList = "user_id"),
       @Index(name = "idx_refresh_hash", columnList = "token_hash")
     })
-public class RefreshTokenEntity {
+@Getter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class RefreshToken {
 
   @Id
   @GeneratedValue(strategy = GenerationType.UUID)
@@ -26,7 +34,7 @@ public class RefreshTokenEntity {
 
   @ManyToOne(fetch = FetchType.LAZY, optional = false)
   @JoinColumn(name = "user_id", nullable = false)
-  private UserEntity user;
+  private User user;
 
   @Column(name = "token_hash", nullable = false, unique = true, length = 64)
   private String tokenHash;
@@ -37,23 +45,18 @@ public class RefreshTokenEntity {
   @Column(name = "device_name", length = 100)
   private String deviceName;
 
+  @Builder.Default
   @Column(name = "created_at", nullable = false, updatable = false)
-  private Instant createdAt;
+  private Instant createdAt = Instant.now();
 
   @Column(name = "revoked_at")
   private Instant revokedAt;
 
-  protected RefreshTokenEntity() {}
-
-  public static RefreshTokenEntity create(
-      UserEntity user, String tokenHash, long expirationMs, String deviceName) {
-    RefreshTokenEntity t = new RefreshTokenEntity();
-    t.user = user;
-    t.tokenHash = tokenHash;
-    t.expiresAt = Instant.now().plusMillis(expirationMs);
-    t.deviceName = deviceName;
-    t.createdAt = Instant.now();
-    return t;
+  public static class RefreshTokenBuilder {
+    public RefreshTokenBuilder expirationMs(long expirationMs) {
+      this.expiresAt = Instant.now().plusMillis(expirationMs);
+      return this;
+    }
   }
 
   public void revoke() {
@@ -70,33 +73,5 @@ public class RefreshTokenEntity {
 
   public boolean isValid() {
     return !isExpired() && !isRevoked();
-  }
-
-  public UUID getId() {
-    return id;
-  }
-
-  public UserEntity getUser() {
-    return user;
-  }
-
-  public String getTokenHash() {
-    return tokenHash;
-  }
-
-  public Instant getExpiresAt() {
-    return expiresAt;
-  }
-
-  public String getDeviceName() {
-    return deviceName;
-  }
-
-  public Instant getCreatedAt() {
-    return createdAt;
-  }
-
-  public Instant getRevokedAt() {
-    return revokedAt;
   }
 }

@@ -1,7 +1,9 @@
 package com.ecommerce.monolith.common.exception;
 
-public class BusinessRuleViolationException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class BusinessRuleViolationException extends AppException {
   public BusinessRuleViolationException(String message) {
-    super(message);
+    super(message, HttpStatus.UNPROCESSABLE_ENTITY);
   }
 }

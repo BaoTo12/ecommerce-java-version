@@ -1,15 +1,17 @@
 package com.ecommerce.monolith.domain.payment.service;
 
-import com.ecommerce.monolith.common.status.OrderStatus;
-import com.ecommerce.monolith.domain.order.repository.OrderRepository;
-import com.ecommerce.monolith.domain.payment.dto.PaymentResponse;
-import com.ecommerce.monolith.domain.payment.dto.RefundRequest;
-import com.ecommerce.monolith.domain.payment.entity.PaymentEntity;
-import com.ecommerce.monolith.domain.payment.gateway.MockPaymentGatewayClient;
-import com.ecommerce.monolith.domain.payment.repository.PaymentRepository;
 import com.ecommerce.monolith.common.exception.BusinessRuleViolationException;
 import com.ecommerce.monolith.common.exception.ResourceNotFoundException;
+import com.ecommerce.monolith.common.status.OrderStatus;
 import com.ecommerce.monolith.domain.notification.service.NotificationService;
+import com.ecommerce.monolith.domain.order.repository.OrderRepository;
+import com.ecommerce.monolith.domain.payment.dto.PaymentDetailsDto;
+import com.ecommerce.monolith.domain.payment.dto.PaymentResponse;
+import com.ecommerce.monolith.domain.payment.dto.RefundRequest;
+import com.ecommerce.monolith.domain.payment.entity.Payment;
+import com.ecommerce.monolith.domain.payment.gateway.MockPaymentGatewayClient;
+import com.ecommerce.monolith.domain.payment.repository.PaymentRepository;
+import com.ecommerce.monolith.domain.payment.mapper.PaymentMapper;
 import java.math.BigDecimal;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -35,16 +37,19 @@ public class PaymentService {
   private final OrderRepository orderRepo;
   private final MockPaymentGatewayClient gateway;
   private final NotificationService notificationService;
+  private final PaymentMapper paymentMapper;
 
   public PaymentService(
       PaymentRepository paymentRepo,
       OrderRepository orderRepo,
       MockPaymentGatewayClient gateway,
-      NotificationService notificationService) {
+      NotificationService notificationService,
+      PaymentMapper paymentMapper) {
     this.paymentRepo = paymentRepo;
     this.orderRepo = orderRepo;
     this.gateway = gateway;
     this.notificationService = notificationService;
+    this.paymentMapper = paymentMapper;
   }
 
   /**
@@ -58,27 +63,37 @@ public class PaymentService {
    * DataIntegrityViolationException.
    */
   public PaymentResponse processPayment(UUID orderId, UUID userId, BigDecimal amount) {
-    return processPayment(orderId, userId, amount, null, null, null, null, null);
+    return processPayment(
+        new PaymentDetailsDto(orderId, userId, amount, null, null, null, null, null));
   }
 
-  public PaymentResponse processPayment(
-      UUID orderId,
-      UUID userId,
-      BigDecimal amount,
-      String cardNumber,
-      String cvc,
-      String cardName,
-      String expiry,
-      String strategy) {
+  public PaymentResponse processPayment(PaymentDetailsDto dto) {
+    UUID orderId = dto.orderId();
+    UUID userId = dto.userId();
+    BigDecimal amount = dto.amount();
+    String cardNumber = dto.cardNumber();
+    String cvc = dto.cvc();
+    String cardName = dto.cardName();
+    String expiry = dto.expiry();
+    String strategy = dto.strategy();
     // ─── Edge Case #3: Pessimistic lock ─────────────────────────────────
     // If no existing payment, create one. If one exists, load it with lock.
-    PaymentEntity payment;
+    Payment payment;
     try {
       payment =
           paymentRepo
               .findByOrderIdForUpdate(orderId)
               .orElseGet(
-                  () -> paymentRepo.saveAndFlush(PaymentEntity.create(orderId, userId, amount)));
+                  () -> {
+                      Payment p = paymentRepo.saveAndFlush(
+                           Payment.builder()
+                               .orderId(orderId)
+                               .userId(userId)
+                               .amount(amount)
+                               .build());
+                      log.info("[DATABASE CHANGE] Created new Payment={} for Order={} with amount={}", p.getId(), orderId, amount);
+                      return p;
+                  });
     } catch (DataIntegrityViolationException e) {
       // Edge Case #9: Race condition → another thread just created it
       log.warn("Race condition on payment creation for order={}. Loading existing.", orderId);
@@ -92,16 +107,17 @@ public class PaymentService {
     // Edge Case #9: Already processed → idempotent return
     if (!"PENDING".equals(payment.getStatus())) {
       log.info("Payment already processed for order={}, status={}", orderId, payment.getStatus());
-      return toResponse(payment);
+      return paymentMapper.toResponse(payment);
     }
 
     // Call mock payment gateway
-    MockPaymentGatewayClient.GatewayResponse result = 
+    MockPaymentGatewayClient.GatewayResponse result =
         gateway.charge(orderId, userId, amount, cardNumber, cvc, cardName, expiry, strategy);
 
     if (result.success()) {
       payment.markCharged();
       paymentRepo.save(payment);
+      log.info("[DATABASE CHANGE] Updated Payment={} status to CHARGED", payment.getId());
 
       // Update order status via state machine (Edge Case #8)
       orderRepo
@@ -110,6 +126,7 @@ public class PaymentService {
               order -> {
                 order.transitionTo(OrderStatus.PAID);
                 orderRepo.save(order);
+                log.info("[DATABASE CHANGE] Transitioned Order={} status to PAID", orderId);
               });
 
       // Send order completion notification directly (Edge Case #11 / Monolith simplified)
@@ -123,6 +140,7 @@ public class PaymentService {
     } else {
       payment.markFailed(result.failureReason());
       paymentRepo.save(payment);
+      log.info("[DATABASE CHANGE] Updated Payment={} status to FAILED (reason: {})", payment.getId(), result.failureReason());
 
       orderRepo
           .findById(orderId)
@@ -130,6 +148,7 @@ public class PaymentService {
               order -> {
                 order.transitionTo(OrderStatus.PAYMENT_FAILED);
                 orderRepo.save(order);
+                log.info("[DATABASE CHANGE] Transitioned Order={} status to PAYMENT_FAILED", orderId);
               });
 
       // Send payment failure notification directly (Edge Case #11 / Monolith simplified)
@@ -142,22 +161,20 @@ public class PaymentService {
       log.warn("Payment failed: order={}, reason={}", orderId, result.failureReason());
     }
 
-    return toResponse(payment);
+    return paymentMapper.toResponse(payment);
   }
 
-  /**
-   * Edge Case #10 — Refund State Machine + Idempotency:
-   *
-   * <p>1. Load with SELECT FOR UPDATE (prevents concurrent refund processing) 2. Check status is
-   * CHARGED (state machine validation) 3. Call gateway refund 4. Terminal states: REFUNDED /
-   * REFUND_FAILED cannot be refunded again
-   *
-   * <p>Second call with same orderId: sees status = REFUNDED → returns early. This prevents double
-   * refunds even if the webhook fires twice.
-   */
+  // Edge Case #10 — Refund State Machine + Idempotency:
+  //
+  // 1. Load with SELECT FOR UPDATE (prevents concurrent refund processing) 2. Check status is
+  // CHARGED (state machine validation) 3. Call gateway refund 4. Terminal states: REFUNDED /
+  // REFUND_FAILED cannot be refunded again
+  //
+  // Second call with same orderId: sees status = REFUNDED → returns early. This prevents double
+  // refunds even if the webhook fires twice.
   public PaymentResponse refund(UUID orderId, RefundRequest req) {
     // ─── Edge Case #3: Pessimistic lock during refund ────────────────────
-    PaymentEntity payment =
+    Payment payment =
         paymentRepo
             .findByOrderIdForUpdate(orderId)
             .orElseThrow(() -> ResourceNotFoundException.of("Payment for order", orderId));
@@ -166,11 +183,11 @@ public class PaymentService {
     // ─── Edge Case #10: State machine — only CHARGED can be refunded ─────
     if ("REFUNDED".equals(payment.getStatus())) {
       log.info("Refund already completed for order={}", orderId);
-      return toResponse(payment);
+      return paymentMapper.toResponse(payment);
     }
     if ("REFUND_REQUESTED".equals(payment.getStatus())) {
       log.info("Refund already in progress for order={}", orderId);
-      return toResponse(payment);
+      return paymentMapper.toResponse(payment);
     }
     if (!"CHARGED".equals(payment.getStatus())) {
       throw new BusinessRuleViolationException(
@@ -182,12 +199,12 @@ public class PaymentService {
 
     payment.requestRefund(req.reason());
 
-    MockPaymentGatewayClient.GatewayResponse result =
-        gateway.refund( payment.getAmount());
+    MockPaymentGatewayClient.GatewayResponse result = gateway.refund(payment.getAmount());
 
     if (result.success()) {
       payment.markRefunded();
       paymentRepo.save(payment);
+      log.info("[DATABASE CHANGE] Updated Payment={} status to REFUNDED", payment.getId());
 
       orderRepo
           .findById(orderId)
@@ -196,6 +213,7 @@ public class PaymentService {
                 if (order.getStatus().canTransitionTo(OrderStatus.CANCELLED)) {
                   order.transitionTo(OrderStatus.CANCELLED);
                   orderRepo.save(order);
+                  log.info("[DATABASE CHANGE] Transitioned Order={} status to CANCELLED (refunded)", orderId);
                 }
               });
 
@@ -203,30 +221,23 @@ public class PaymentService {
     } else {
       payment.markRefundFailed(result.failureReason());
       paymentRepo.save(payment);
+      log.info("[DATABASE CHANGE] Updated Payment={} status to REFUND_FAILED (reason: {})", payment.getId(), result.failureReason());
       log.error(
           "Refund FAILED — MANUAL INTERVENTION REQUIRED: order={}, reason={}",
           orderId,
           result.failureReason());
     }
 
-    return toResponse(payment);
+    return paymentMapper.toResponse(payment);
   }
 
   @Transactional(readOnly = true)
   public PaymentResponse getByOrderId(UUID orderId) {
     return paymentRepo
         .findByOrderId(orderId)
-        .map(this::toResponse)
+        .map(paymentMapper::toResponse)
         .orElseThrow(() -> ResourceNotFoundException.of("Payment for order", orderId));
   }
 
-  private PaymentResponse toResponse(PaymentEntity p) {
-    return new PaymentResponse(
-        p.getOrderId(),
-        p.getStatus(),
-        p.getAmount(),
-        p.getFailureReason(),
-        p.getCreatedAt(),
-        p.getUpdatedAt());
-  }
+
 }

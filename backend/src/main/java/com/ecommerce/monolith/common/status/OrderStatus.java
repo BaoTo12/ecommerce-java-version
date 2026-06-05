@@ -35,11 +35,11 @@ public enum OrderStatus {
 
   private static final Map<OrderStatus, Set<OrderStatus>> VALID_TRANSITIONS =
       Map.ofEntries(
-          Map.entry(PENDING, Set.of(CONFIRMED, CANCELLED)),
+          Map.entry(PENDING, Set.of(CONFIRMED, CANCELLED, PAID, PAYMENT_PENDING, PAYMENT_FAILED)),
           Map.entry(CONFIRMED, Set.of(PAYMENT_PENDING, CANCELLED)),
-          Map.entry(PAYMENT_PENDING, Set.of(PAID, PAYMENT_FAILED, CANCELLED)),
+          Map.entry(PAYMENT_PENDING, Set.of(PAID, PAYMENT_FAILED, CANCELLED, PENDING)),
           Map.entry(PAID, Set.of(PROCESSING, CANCELLED)),
-          Map.entry(PAYMENT_FAILED, Set.of(CANCELLED)),
+          Map.entry(PAYMENT_FAILED, Set.of(CANCELLED, PENDING)),
           Map.entry(PROCESSING, Set.of(SHIPPED, CANCELLED)),
           Map.entry(SHIPPED, Set.of(DELIVERED)),
           Map.entry(DELIVERED, Set.of(COMPLETED)),
@@ -47,11 +47,8 @@ public enum OrderStatus {
           Map.entry(CANCELLED, Set.of()),
           Map.entry(EXPIRED, Set.of()));
 
-  /**
-   * Edge Case #8: Validates and performs the transition.
-   *
-   * @throws IllegalOrderTransitionException if the transition is not allowed.
-   */
+  // Edge Case #8: Validates and performs the transition.
+  // Throws IllegalOrderTransitionException if the transition is not allowed.
   public void validateTransitionTo(OrderStatus next) {
     Set<OrderStatus> allowed = VALID_TRANSITIONS.getOrDefault(this, Set.of());
     if (!allowed.contains(next)) {
@@ -61,9 +58,5 @@ public enum OrderStatus {
 
   public boolean canTransitionTo(OrderStatus next) {
     return VALID_TRANSITIONS.getOrDefault(this, Set.of()).contains(next);
-  }
-
-  public boolean isTerminal() {
-    return this == COMPLETED || this == CANCELLED || this == EXPIRED;
   }
 }

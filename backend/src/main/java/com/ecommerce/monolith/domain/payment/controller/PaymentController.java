@@ -33,15 +33,14 @@ public class PaymentController {
       @RequestParam(required = false) String expiry,
       @RequestParam(required = false) String strategy) {
     UUID userId = com.ecommerce.monolith.common.security.SecurityUtils.getCurrentUserId();
-    return ResponseEntity.ok(
-        paymentService.processPayment(
-            orderId, userId, amount, cardNumber, cvc, cardName, expiry, strategy));
+    com.ecommerce.monolith.domain.payment.dto.PaymentDetailsDto dto =
+        new com.ecommerce.monolith.domain.payment.dto.PaymentDetailsDto(
+            orderId, userId, amount, cardNumber, cvc, cardName, expiry, strategy);
+    return ResponseEntity.ok(paymentService.processPayment(dto));
   }
 
-  /**
-   * Edge Case #10: Refund — only CHARGED payments can be refunded. Second call returns cached
-   * result (idempotent via state machine).
-   */
+  // Edge Case #10: Refund — only CHARGED payments can be refunded. Second call returns cached
+  // result (idempotent via state machine).
   @PostMapping("/order/{orderId}/refund")
   public ResponseEntity<PaymentResponse> refund(
       @PathVariable UUID orderId, @Valid @RequestBody RefundRequest req) {

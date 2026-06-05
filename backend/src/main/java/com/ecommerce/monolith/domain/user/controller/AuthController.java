@@ -1,15 +1,14 @@
 package com.ecommerce.monolith.domain.user.controller;
 
+import com.ecommerce.monolith.common.resilience.RateLimit;
 import com.ecommerce.monolith.domain.user.dto.*;
 import com.ecommerce.monolith.domain.user.service.AuthService;
-import com.ecommerce.monolith.common.resilience.RateLimit;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/** Authentication controller. Edge Case #12: Login and token refresh are rate-limited. */
 @RestController
 @RequestMapping("/auth")
 public class AuthController {

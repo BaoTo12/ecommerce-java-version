@@ -3,6 +3,10 @@ package com.ecommerce.monolith.domain.notification.entity;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 /**
  * Notification entity.
@@ -32,6 +36,10 @@ import java.util.UUID;
       @Index(name = "idx_notification_order", columnList = "order_id"),
       @Index(name = "idx_notification_user", columnList = "user_id")
     })
+@Getter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class NotificationEntity {
 
   @Id
@@ -55,12 +63,15 @@ public class NotificationEntity {
   private String subject;
 
   /** PENDING, SENT, FAILED */
+  @Builder.Default
   @Column(nullable = false, length = 20)
   private String status = "PENDING";
 
+  @Builder.Default
   @Column(name = "retry_count", nullable = false)
   private int retryCount = 0;
 
+  @Builder.Default
   @Column(name = "max_retry", nullable = false)
   private int maxRetry = 3;
 
@@ -70,26 +81,13 @@ public class NotificationEntity {
   @Column(name = "sent_at")
   private Instant sentAt;
 
+  @Builder.Default
   @Column(name = "created_at", nullable = false, updatable = false)
-  private Instant createdAt;
+  private Instant createdAt = Instant.now();
 
+  @Builder.Default
   @Column(name = "updated_at", nullable = false)
-  private Instant updatedAt;
-
-  protected NotificationEntity() {}
-
-  public static NotificationEntity create(
-      UUID orderId, UUID userId, String type, String recipientEmail, String subject) {
-    NotificationEntity n = new NotificationEntity();
-    n.orderId = orderId;
-    n.userId = userId;
-    n.type = type;
-    n.recipientEmail = recipientEmail;
-    n.subject = subject;
-    n.createdAt = Instant.now();
-    n.updatedAt = Instant.now();
-    return n;
-  }
+  private Instant updatedAt = Instant.now();
 
   public void markSent() {
     this.status = "SENT";
@@ -104,54 +102,5 @@ public class NotificationEntity {
       this.status = "FAILED";
     }
     this.updatedAt = Instant.now();
-  }
-
-  // ─── Getters ──────────────────────────────────────────────────────────────
-  public UUID getId() {
-    return id;
-  }
-
-  public UUID getOrderId() {
-    return orderId;
-  }
-
-  public UUID getUserId() {
-    return userId;
-  }
-
-  public String getType() {
-    return type;
-  }
-
-  public String getRecipientEmail() {
-    return recipientEmail;
-  }
-
-  public String getSubject() {
-    return subject;
-  }
-
-  public String getStatus() {
-    return status;
-  }
-
-  public int getRetryCount() {
-    return retryCount;
-  }
-
-  public String getLastError() {
-    return lastError;
-  }
-
-  public Instant getSentAt() {
-    return sentAt;
-  }
-
-  public Instant getCreatedAt() {
-    return createdAt;
-  }
-
-  public Instant getUpdatedAt() {
-    return updatedAt;
   }
 }

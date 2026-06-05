@@ -1,13 +1,13 @@
 package com.ecommerce.monolith.domain.user.service;
 
-import com.ecommerce.monolith.domain.user.dto.*;
-import com.ecommerce.monolith.domain.user.entity.RefreshTokenEntity;
-import com.ecommerce.monolith.domain.user.entity.UserEntity;
-import com.ecommerce.monolith.domain.user.repository.RefreshTokenRepository;
-import com.ecommerce.monolith.domain.user.repository.UserRepository;
 import com.ecommerce.monolith.common.exception.BusinessRuleViolationException;
 import com.ecommerce.monolith.common.exception.ResourceNotFoundException;
 import com.ecommerce.monolith.common.security.JwtUtil;
+import com.ecommerce.monolith.domain.user.dto.*;
+import com.ecommerce.monolith.domain.user.entity.RefreshToken;
+import com.ecommerce.monolith.domain.user.entity.User;
+import com.ecommerce.monolith.domain.user.repository.RefreshTokenRepository;
+import com.ecommerce.monolith.domain.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -52,7 +52,13 @@ public class AuthService {
       throw new BusinessRuleViolationException("Email already registered: " + req.email());
     }
     String hashed = passwordEncoder.encode(req.password());
-    UserEntity user = UserEntity.create(req.email(), hashed, req.name(), req.phone());
+    User user =
+        User.builder()
+            .email(req.email())
+            .hashedPassword(hashed)
+            .name(req.name())
+            .phone(req.phone())
+            .build();
     userRepo.save(user);
     log.info("User registered: userId={}", user.getId());
     return issueTokens(user, req.userAgent());
@@ -60,7 +66,7 @@ public class AuthService {
 
   public AuthResponse login(LoginRequest req) {
     // Edge Case #6: reject soft-deleted users
-    UserEntity user =
+    User user =
         userRepo
             .findByEmailAndIsActiveTrue(req.email().toLowerCase())
             .orElseThrow(() -> new BusinessRuleViolationException("Invalid credentials"));
@@ -75,7 +81,7 @@ public class AuthService {
 
   public AuthResponse refreshToken(RefreshTokenRequest req) {
     String hash = sha256(req.refreshToken());
-    RefreshTokenEntity stored =
+    RefreshToken stored =
         refreshRepo
             .findByTokenHash(hash)
             .orElseThrow(() -> new BusinessRuleViolationException("Invalid refresh token"));
@@ -90,7 +96,7 @@ public class AuthService {
       throw new BusinessRuleViolationException("Not a refresh token");
     }
 
-    UserEntity user = stored.getUser();
+    User user = stored.getUser();
     if (!user.isActive()) {
       throw new BusinessRuleViolationException("Account is inactive");
     }
@@ -113,12 +119,10 @@ public class AuthService {
             });
   }
 
-  /**
-   * Edge Case #15: Logout from ALL devices. Increments tokenVersion → all existing access tokens
-   * immediately invalid.
-   */
+  // Edge Case #15: Logout from ALL devices. Increments tokenVersion → all existing access tokens
+  // immediately invalid.
   public void logoutAll(UUID userId) {
-    UserEntity user =
+    User user =
         userRepo
             .findActiveById(userId)
             .orElseThrow(() -> ResourceNotFoundException.of("User", userId));
@@ -128,9 +132,9 @@ public class AuthService {
     log.info("All sessions invalidated for userId={}", userId);
   }
 
-  /** Edge Case #15: Password change invalidates all sessions. */
+  // Edge Case #15: Password change invalidates all sessions.
   public void changePassword(UUID userId, ChangePasswordRequest req) {
-    UserEntity user =
+    User user =
         userRepo
             .findActiveById(userId)
             .orElseThrow(() -> ResourceNotFoundException.of("User", userId));
@@ -147,7 +151,7 @@ public class AuthService {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
 
-  private AuthResponse issueTokens(UserEntity user, String userAgent) {
+  private AuthResponse issueTokens(User user, String userAgent) {
     String accessToken =
         jwtUtil.generateAccessToken(
             user.getId(),
@@ -160,8 +164,13 @@ public class AuthService {
     String tokenHash = sha256(rawRefreshToken);
     String deviceName = parseDeviceName(userAgent);
 
-    RefreshTokenEntity refreshToken =
-        RefreshTokenEntity.create(user, tokenHash, jwtUtil.getRefreshExpirationMs(), deviceName);
+    RefreshToken refreshToken =
+        RefreshToken.builder()
+            .user(user)
+            .tokenHash(tokenHash)
+            .expirationMs(jwtUtil.getRefreshExpirationMs())
+            .deviceName(deviceName)
+            .build();
     refreshRepo.save(refreshToken);
 
     return new AuthResponse(

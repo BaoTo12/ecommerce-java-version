@@ -1,13 +1,14 @@
 package com.ecommerce.monolith.domain.cart.entity;
 
-import com.ecommerce.monolith.common.status.CartStatus;
 import jakarta.persistence.*;
-import lombok.Getter;
-
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 /**
  * Shopping cart.
@@ -22,59 +23,45 @@ import java.util.UUID;
 @Getter
 @Entity
 @Table(
-        name = "carts",
-        indexes = {@Index(name = "idx_cart_user_status", columnList = "user_id, status")})
+    name = "carts",
+    indexes = {@Index(name = "idx_cart_user_status", columnList = "user_id, status")})
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class Cart {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
+  @Id
+  @GeneratedValue(strategy = GenerationType.UUID)
+  private UUID id;
 
-    @Column(name = "user_id", nullable = false)
-    private UUID userId;
+  @Column(name = "user_id", nullable = false)
+  private UUID userId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 50)
-    private CartStatus status = CartStatus.ACTIVE;
+  @Builder.Default
+  @Column(name = "created_at", nullable = false, updatable = false)
+  private Instant createdAt = Instant.now();
 
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
+  @Builder.Default
+  @Column(name = "updated_at", nullable = false)
+  private Instant updatedAt = Instant.now();
 
-    @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
+  @Builder.Default
+  @OneToMany(
+      mappedBy = "cart",
+      cascade = CascadeType.ALL,
+      orphanRemoval = true,
+      fetch = FetchType.EAGER)
+  private List<CartItem> items = new ArrayList<>();
 
-    @OneToMany(
-            mappedBy = "cart",
-            cascade = CascadeType.ALL,
-            orphanRemoval = true,
-            fetch = FetchType.EAGER)
-    private List<CartItem> items = new ArrayList<>();
+  public void markCheckedOut() {
+    this.updatedAt = Instant.now();
+  }
 
-    protected Cart() {
-    }
+  public void markAbandoned() {
+    this.updatedAt = Instant.now();
+  }
 
-    public static Cart create(UUID userId) {
-        Cart c = new Cart();
-        c.userId = userId;
-        c.status = CartStatus.ACTIVE;
-        c.createdAt = Instant.now();
-        c.updatedAt = Instant.now();
-        return c;
-    }
-
-    public void markCheckedOut() {
-        this.status = CartStatus.CHECKED_OUT;
-        this.updatedAt = Instant.now();
-    }
-
-    public void markAbandoned() {
-        this.status = CartStatus.ABANDONED;
-        this.updatedAt = Instant.now();
-    }
-
-    public void touch() {
-        this.updatedAt = Instant.now();
-    }
-
-
+  public void touch() {
+    this.updatedAt = Instant.now();
+  }
 }

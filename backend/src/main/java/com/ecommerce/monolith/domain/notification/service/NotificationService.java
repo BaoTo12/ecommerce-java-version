@@ -75,11 +75,9 @@ public class NotificationService {
         "Payment for order #" + orderId + " failed: " + reason);
   }
 
-  /**
-   * Edge Case #18 — Notification Deduplication: 1. Check if notification of this type already
-   * exists and was SENT 2. If SENT → return immediately (no duplicate email) 3. If PENDING/FAILED →
-   * retry sending 4. DB UNIQUE constraint as final backstop against race conditions
-   */
+  // Edge Case #18 — Notification Deduplication: 1. Check if notification of this type already
+  // exists and was SENT 2. If SENT → return immediately (no duplicate email) 3. If PENDING/FAILED →
+  // retry sending 4. DB UNIQUE constraint as final backstop against race conditions
   private void sendNotification(
       UUID orderId, UUID userId, String type, String subject, String body) {
     // ─── Layer 1: Application-level deduplication ─────────────────────
@@ -97,7 +95,14 @@ public class NotificationService {
     if (existing.isPresent()) {
       notification = existing.get();
     } else {
-      notification = NotificationEntity.create(orderId, userId, type, recipientEmail, subject);
+      notification =
+          NotificationEntity.builder()
+              .orderId(orderId)
+              .userId(userId)
+              .type(type)
+              .recipientEmail(recipientEmail)
+              .subject(subject)
+              .build();
       try {
         // ─── Layer 2: DB UNIQUE constraint catches race conditions ──
         notification = notificationRepo.saveAndFlush(notification);

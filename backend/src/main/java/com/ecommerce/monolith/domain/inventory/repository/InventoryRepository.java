@@ -8,24 +8,22 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface InventoryRepository extends JpaRepository<Inventory, UUID> {
 
-  /**
-   * Edge Case #14 — Atomic SQL Decrement (Flash Sales):
-   *
-   * <p>Problem: In a flash sale, 10,000 concurrent users try to buy the last item. With ORM
-   * read-then-write (even with optimistic locking), we get retry storms: - 9,999 threads fail with
-   * ObjectOptimisticLockingFailureException - They all retry → even more collisions - The DB
-   * becomes a thundering herd problem
-   *
-   * <p>Solution: Single native SQL UPDATE with a WHERE clause that atomically checks AND decrements
-   * the quantity. The DB engine serializes this at the row level. Only one thread gets
-   * rows_affected=1; all others get 0.
-   *
-   * <p>UPDATE inventory SET quantity = quantity - :amount, updated_at = now() WHERE product_id =
-   * :productId AND quantity >= :amount
-   *
-   * <p>Returns: 1 if success (enough stock), 0 if out of stock. No retry loop needed. No optimistic
-   * lock exception. Scales to any number of concurrent requests.
-   */
+  // Edge Case #14 — Atomic SQL Decrement (Flash Sales):
+  //
+  // Problem: In a flash sale, 10,000 concurrent users try to buy the last item. With ORM
+  // read-then-write (even with optimistic locking), we get retry storms: - 9,999 threads fail with
+  // ObjectOptimisticLockingFailureException - They all retry → even more collisions - The DB
+  // becomes a thundering herd problem
+  //
+  // Solution: Single native SQL UPDATE with a WHERE clause that atomically checks AND decrements
+  // the quantity. The DB engine serializes this at the row level. Only one thread gets
+  // rows_affected=1; all others get 0.
+  //
+  // UPDATE inventory SET quantity = quantity - :amount, updated_at = now() WHERE product_id =
+  // :productId AND quantity >= :amount
+  //
+  // Returns: 1 if success (enough stock), 0 if out of stock. No retry loop needed. No optimistic
+  // lock exception. Scales to any number of concurrent requests.
   @Modifying
   @Query(
       value =

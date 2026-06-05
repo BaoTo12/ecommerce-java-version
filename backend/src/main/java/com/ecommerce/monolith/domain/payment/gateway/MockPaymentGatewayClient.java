@@ -33,8 +33,12 @@ public class MockPaymentGatewayClient {
       String cardName,
       String expiry,
       String strategy) {
-    log.info("Mock gateway charge for order={}, amount={}, card={}, strategy={}", 
-        orderId, amount, cardNumber != null ? "masked" : "none", strategy);
+    log.info(
+        "Mock gateway charge for order={}, amount={}, card={}, strategy={}",
+        orderId,
+        amount,
+        cardNumber != null ? "masked" : "none",
+        strategy);
 
     // Apply explicit strategy if selected
     if (strategy != null && !strategy.isBlank()) {
@@ -60,7 +64,8 @@ public class MockPaymentGatewayClient {
           return new GatewayResponse(false, null, "GATEWAY_TIMEOUT");
         }
         case "SUCCEED" -> {
-          return new GatewayResponse(true, "TXN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(), null);
+          return new GatewayResponse(
+              true, "TXN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(), null);
         }
       }
     }
@@ -68,14 +73,15 @@ public class MockPaymentGatewayClient {
     // Default card-number-based mock behavior if cardNumber is provided
     if (cardNumber != null && !cardNumber.isBlank()) {
       String cleanCard = cardNumber.replaceAll("\\D", "");
-      
+
       // Luhn Check validation (except for the standard stripe success card or force fail cards)
-      boolean isSpecialMockCard = cleanCard.equals("4242424242424242") 
-          || cleanCard.equals("4000000000000002")
-          || cleanCard.equals("4000000000003022")
-          || cleanCard.equals("4000000000000115")
-          || cleanCard.equals("4000000000000123");
-          
+      boolean isSpecialMockCard =
+          cleanCard.equals("4242424242424242")
+              || cleanCard.equals("4000000000000002")
+              || cleanCard.equals("4000000000003022")
+              || cleanCard.equals("4000000000000115")
+              || cleanCard.equals("4000000000000123");
+
       if (!isSpecialMockCard && !checkLuhn(cleanCard)) {
         return new GatewayResponse(false, null, "INVALID_CARD_NUMBER");
       }
@@ -108,9 +114,10 @@ public class MockPaymentGatewayClient {
           return new GatewayResponse(false, null, "EXPIRED_CARD");
         }
       }
-      
+
       // Fallback: regular cards succeed
-      return new GatewayResponse(true, "TXN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(), null);
+      return new GatewayResponse(
+          true, "TXN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(), null);
     }
 
     // Default rate-based success if no card info or strategy is provided
@@ -121,8 +128,8 @@ public class MockPaymentGatewayClient {
     return new GatewayResponse(false, null, "CARD_DECLINED");
   }
 
-  public GatewayResponse refund( BigDecimal amount) {
-    log.info("Mock gateway: amount={}",  amount);
+  public GatewayResponse refund(BigDecimal amount) {
+    log.info("Mock gateway: amount={}", amount);
     if (ThreadLocalRandom.current().nextDouble() < 0.95) {
       return new GatewayResponse(
           true, "REF-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(), null);
@@ -155,7 +162,7 @@ public class MockPaymentGatewayClient {
     String[] parts = expiry.split("/");
     int expMonth = Integer.parseInt(parts[0]);
     int expYear = 2000 + Integer.parseInt(parts[1]);
-    
+
     java.time.YearMonth expYearMonth = java.time.YearMonth.of(expYear, expMonth);
     return expYearMonth.isBefore(java.time.YearMonth.now());
   }

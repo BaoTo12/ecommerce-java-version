@@ -2,12 +2,11 @@ package com.ecommerce.monolith.domain.order.entity;
 
 import com.ecommerce.monolith.common.status.CheckoutSessionStatus;
 import jakarta.persistence.*;
-import lombok.*;
-import lombok.experimental.FieldDefaults;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+import lombok.*;
+import lombok.experimental.FieldDefaults;
 
 @Entity
 @Table(name = "checkout_sessions")
@@ -15,24 +14,28 @@ import java.util.UUID;
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 @NoArgsConstructor
+@Getter
+@Setter
 public class CheckoutSession {
-    @Id
-    UUID idempotencyKey;
+  @Id UUID idempotencyKey;
 
-    UUID userId;
-    UUID cartId;
+  UUID userId;
+  UUID cartId;
 
-    BigDecimal totalAmount;
+  @Column(name = "order_id")
+  UUID orderId;
 
-    @Enumerated(EnumType.STRING)
-    CheckoutSessionStatus status;
+  BigDecimal totalAmount;
 
-    String responseBody;
+  @Enumerated(EnumType.STRING)
+  CheckoutSessionStatus status;
 
-    Instant createdAt;
+  String responseBody;
+  Instant createdAt;
+  Instant expiresAt;
 
-    @PrePersist
-    void setCreatedAt(){
-        createdAt = Instant.now();
-    }
+  @PrePersist
+  void setCreatedAt() {
+    createdAt = Instant.now();
+  }
 }

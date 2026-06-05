@@ -1,17 +1,17 @@
 package com.ecommerce.monolith.domain.order.controller;
 
+import com.ecommerce.monolith.common.exception.AppException;
+import com.ecommerce.monolith.common.resilience.RateLimit;
 import com.ecommerce.monolith.domain.order.dto.*;
 import com.ecommerce.monolith.domain.order.service.OrderService;
-import com.ecommerce.monolith.common.resilience.RateLimit;
 import jakarta.validation.Valid;
-import java.util.List;
 import java.util.UUID;
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,10 +26,31 @@ public class OrderController {
   @PostMapping("/checkout/session")
   @ResponseStatus(HttpStatus.CREATED)
   @RateLimit(maxRequests = 10, windowSeconds = 60, name = "checkout")
-  public ResponseEntity<CheckoutSessionResponse> checkoutSession(@Valid @RequestBody CheckoutRequest request){
+  public ResponseEntity<CheckoutSessionResponse> checkoutSession(
+      @Valid @RequestBody CheckoutSessionRequest request) {
     return ResponseEntity.ok(orderService.checkoutSession(request));
   }
 
+  @PostMapping( "/checkout/execute")
+  public ResponseEntity<String> executePayment(
+          @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKeyStr,
+          @RequestBody(required = false) CheckoutExecuteRequest request) {
+
+    if (idempotencyKeyStr == null || idempotencyKeyStr.isBlank()) {
+      throw new AppException("Missing Idempotency-Key header", HttpStatus.BAD_REQUEST);
+    }
+
+    UUID idempotencyKey;
+    try {
+      idempotencyKey = UUID.fromString(idempotencyKeyStr.trim());
+    } catch (IllegalArgumentException e) {
+      throw new AppException("Invalid Idempotency-Key format", HttpStatus.BAD_REQUEST);
+    }
+
+    String responseBody = orderService.checkout(idempotencyKey, request);
+
+    return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(responseBody);
+  }
 
   @GetMapping
   public Page<OrderResponse> listOrders(@PageableDefault(size = 20) Pageable pageable) {

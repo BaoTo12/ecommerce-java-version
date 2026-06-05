@@ -8,10 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface NotificationRepository extends JpaRepository<NotificationEntity, UUID> {
 
-  /**
-   * Edge Case #18 — Deduplication: Check if a notification of this type was already sent for the
-   * order.
-   */
+  // Edge Case #18 — Deduplication: Check if a notification of this type was already sent for the
+  // order.
   Optional<NotificationEntity> findByOrderIdAndType(UUID orderId, String type);
 
   List<NotificationEntity> findByOrderId(UUID orderId);

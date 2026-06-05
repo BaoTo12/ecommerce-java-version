@@ -14,5 +14,5 @@ public record OrderResponse(
     Instant createdAt,
     Instant updatedAt) {
   public record OrderItemDto(
-      UUID productId, String productName, int quantity, BigDecimal unitPrice) {}
+      UUID productId, String productName, int quantity) {}
 }
