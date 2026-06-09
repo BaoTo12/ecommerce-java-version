@@ -15,8 +15,8 @@
     <artifactId>backend</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
-    <name>E-commerce Monolith</name>
-    <description>Production-grade monolith e-commerce app with 20 senior-level edge cases</description>
+    <name>E-commerce</name>
+    <description>Production-grade e-commerce app</description>
 
     <properties>
         <java.version>21</java.version>
