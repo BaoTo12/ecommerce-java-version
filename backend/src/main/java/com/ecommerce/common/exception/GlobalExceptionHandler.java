@@ -15,7 +15,6 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-/** Centralized exception handler — maps domain exceptions to proper HTTP responses. */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 

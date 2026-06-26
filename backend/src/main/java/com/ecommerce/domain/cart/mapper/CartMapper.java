@@ -1,8 +1,8 @@
 package com.ecommerce.domain.cart.mapper;
 
 import com.ecommerce.domain.cart.dto.CartResponse;
-import com.ecommerce.domain.cart.entity.Cart;
-import com.ecommerce.domain.cart.entity.CartItem;
+import com.ecommerce.domain.cart.domain.model.Cart;
+import com.ecommerce.domain.cart.domain.model.CartItem;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import java.math.BigDecimal;

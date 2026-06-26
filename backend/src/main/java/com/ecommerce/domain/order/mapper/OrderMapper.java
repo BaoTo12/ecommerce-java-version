@@ -1,8 +1,8 @@
 package com.ecommerce.domain.order.mapper;
 
 import com.ecommerce.domain.order.dto.OrderResponse;
-import com.ecommerce.domain.order.entity.Order;
-import com.ecommerce.domain.order.entity.OrderItem;
+import com.ecommerce.domain.order.domain.model.Order;
+import com.ecommerce.domain.order.domain.model.OrderItem;
 import org.mapstruct.Mapper;
 
 @Mapper(componentModel = "spring")

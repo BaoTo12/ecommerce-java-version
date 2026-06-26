@@ -2,8 +2,8 @@ package com.ecommerce.domain.user.mapper;
 
 import com.ecommerce.domain.user.dto.AddressResponse;
 import com.ecommerce.domain.user.dto.UserProfileResponse;
-import com.ecommerce.domain.user.entity.User;
-import com.ecommerce.domain.user.entity.UserAddress;
+import com.ecommerce.domain.user.domain.model.User;
+import com.ecommerce.domain.user.domain.model.UserAddress;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
@@ -14,3 +14,4 @@ public interface UserMapper {
     @Mapping(target = "isDefault", source = "default")
     AddressResponse toAddressResponse(UserAddress address);
 }
+

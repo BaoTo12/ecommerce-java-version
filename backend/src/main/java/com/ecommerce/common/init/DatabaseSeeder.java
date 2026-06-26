@@ -1,25 +1,20 @@
 package com.ecommerce.common.init;
 
-import com.ecommerce.domain.cart.entity.Cart;
-import com.ecommerce.domain.cart.entity.CartItem;
-import com.ecommerce.domain.cart.repository.CartRepository;
-import com.ecommerce.domain.catalog.entity.Product;
-import com.ecommerce.domain.catalog.repository.ProductRepository;
-import com.ecommerce.domain.inventory.entity.Inventory;
-import com.ecommerce.domain.inventory.repository.InventoryRepository;
-import com.ecommerce.domain.inventory.repository.InventoryReservationRepository;
-import com.ecommerce.domain.notification.repository.NotificationRepository;
-import com.ecommerce.domain.order.repository.CheckoutSessionRepository;
-import com.ecommerce.domain.order.repository.OrderRepository;
-import com.ecommerce.domain.payment.repository.PaymentRepository;
-import com.ecommerce.domain.user.entity.Card;
-import com.ecommerce.domain.user.entity.RefreshToken;
-import com.ecommerce.domain.user.entity.User;
-import com.ecommerce.domain.user.entity.UserAddress;
-import com.ecommerce.domain.user.repository.CardRepository;
-import com.ecommerce.domain.user.repository.RefreshTokenRepository;
-import com.ecommerce.domain.user.repository.UserAddressRepository;
-import com.ecommerce.domain.user.repository.UserRepository;
+import com.ecommerce.domain.cart.adapter.out.persistence.CartItemJpaEntity;
+import com.ecommerce.domain.cart.adapter.out.persistence.CartJpaEntity;
+import com.ecommerce.domain.cart.adapter.out.persistence.SpringDataCartRepository;
+import com.ecommerce.domain.catalog.adapter.out.persistence.ProductJpaEntity;
+import com.ecommerce.domain.catalog.adapter.out.persistence.SpringDataProductRepository;
+import com.ecommerce.domain.inventory.adapter.out.persistence.InventoryJpaEntity;
+import com.ecommerce.domain.inventory.adapter.out.persistence.SpringDataInventoryRepository;
+import com.ecommerce.domain.user.adapter.out.persistence.CardJpaEntity;
+import com.ecommerce.domain.user.adapter.out.persistence.RefreshTokenJpaEntity;
+import com.ecommerce.domain.user.adapter.out.persistence.UserAddressJpaEntity;
+import com.ecommerce.domain.user.adapter.out.persistence.UserJpaEntity;
+import com.ecommerce.domain.user.adapter.out.persistence.SpringDataCardRepository;
+import com.ecommerce.domain.user.adapter.out.persistence.SpringDataRefreshTokenRepository;
+import com.ecommerce.domain.user.adapter.out.persistence.SpringDataUserAddressRepository;
+import com.ecommerce.domain.user.adapter.out.persistence.SpringDataUserRepository;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
@@ -33,19 +28,14 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class DatabaseSeeder implements CommandLineRunner {
 
-    private final UserRepository userRepository;
-    private final UserAddressRepository userAddressRepository;
-    private final RefreshTokenRepository refreshTokenRepository;
-    private final ProductRepository productRepository;
-    private final InventoryRepository inventoryRepository;
-    private final CartRepository cartRepository;
-    private final OrderRepository orderRepository;
-    private final CheckoutSessionRepository checkoutSessionRepository;
-    private final PaymentRepository paymentRepository;
-    private final InventoryReservationRepository inventoryReservationRepository;
-    private final NotificationRepository notificationRepository;
+    private final SpringDataUserRepository userRepository;
+    private final SpringDataUserAddressRepository userAddressRepository;
+    private final SpringDataRefreshTokenRepository refreshTokenRepository;
+    private final SpringDataProductRepository productRepository;
+    private final SpringDataInventoryRepository inventoryRepository;
+    private final SpringDataCartRepository cartRepository;
     private final PasswordEncoder passwordEncoder;
-    private final CardRepository cardRepository;
+    private final SpringDataCardRepository cardRepository;
 
     @Override
     @Transactional
@@ -112,8 +102,8 @@ public class DatabaseSeeder implements CommandLineRunner {
             System.out.println("Seeding users, addresses, tokens, cards, and carts...");
             String defaultHashedPassword = passwordEncoder.encode("secret123");
 
-            User regularUser =
-                    User.builder()
+            UserJpaEntity regularUser =
+                    UserJpaEntity.builder()
                             .email("user@ecommerce.com")
                             .hashedPassword(defaultHashedPassword)
                             .name("John Doe")
@@ -121,8 +111,8 @@ public class DatabaseSeeder implements CommandLineRunner {
                             .build();
             userRepository.save(regularUser);
 
-            User adminUser =
-                    User.builder()
+            UserJpaEntity adminUser =
+                    UserJpaEntity.builder()
                             .email("admin@ecommerce.com")
                             .hashedPassword(defaultHashedPassword)
                             .name("Admin User")
@@ -131,8 +121,8 @@ public class DatabaseSeeder implements CommandLineRunner {
                             .build();
             userRepository.save(adminUser);
 
-            UserAddress userHomeAddress =
-                    UserAddress.builder()
+            UserAddressJpaEntity userHomeAddress =
+                    UserAddressJpaEntity.builder()
                             .user(regularUser)
                             .label("Home")
                             .addressLine1("123 Main St")
@@ -141,8 +131,8 @@ public class DatabaseSeeder implements CommandLineRunner {
                             .country("Vietnam")
                             .isDefault(true)
                             .build();
-            UserAddress userOfficeAddress =
-                    UserAddress.builder()
+            UserAddressJpaEntity userOfficeAddress =
+                    UserAddressJpaEntity.builder()
                             .user(regularUser)
                             .label("Office")
                             .addressLine1("456 Tech Park")
@@ -151,8 +141,8 @@ public class DatabaseSeeder implements CommandLineRunner {
                             .country("Vietnam")
                             .isDefault(false)
                             .build();
-            UserAddress adminHQAddress =
-                    UserAddress.builder()
+            UserAddressJpaEntity adminHQAddress =
+                    UserAddressJpaEntity.builder()
                             .user(adminUser)
                             .label("HQ")
                             .addressLine1("1 Admin Way")
@@ -164,42 +154,42 @@ public class DatabaseSeeder implements CommandLineRunner {
             userAddressRepository.saveAll(
                     Arrays.asList(userHomeAddress, userOfficeAddress, adminHQAddress));
 
-            RefreshToken activeToken =
-                    RefreshToken.builder()
+            RefreshTokenJpaEntity activeToken =
+                    RefreshTokenJpaEntity.builder()
                             .user(regularUser)
                             .tokenHash("active_token_hash_value_1234567890")
-                            .expirationMs(24 * 60 * 60 * 1000L)
+                            .expiresAt(java.time.Instant.now().plusMillis(24 * 60 * 60 * 1000L))
                             .deviceName("Chrome - Windows 11")
                             .build();
-            RefreshToken revokedToken =
-                    RefreshToken.builder()
+            RefreshTokenJpaEntity revokedToken =
+                    RefreshTokenJpaEntity.builder()
                             .user(regularUser)
                             .tokenHash("revoked_token_hash_value_0987654321")
-                            .expirationMs(24 * 60 * 60 * 1000L)
+                            .expiresAt(java.time.Instant.now().plusMillis(24 * 60 * 60 * 1000L))
                             .deviceName("Safari - macOS")
+                            .revokedAt(java.time.Instant.now())
                             .build();
-            revokedToken.revoke();
             refreshTokenRepository.saveAll(Arrays.asList(activeToken, revokedToken));
 
             // Carts & Cart Items
-            Cart activeCart = Cart.builder().userId(regularUser.getId()).build();
+            CartJpaEntity activeCart = CartJpaEntity.builder().userId(regularUser.getId()).build();
             cartRepository.save(activeCart);
 
-            Product keyboard = productRepository.findBySkuAndIsActiveTrue("KBD-MECH-87")
+            ProductJpaEntity keyboard = productRepository.findBySkuAndIsActiveTrue("KBD-MECH-87")
                     .orElseThrow(() -> new IllegalStateException("Keyboard not found"));
-            Product mouse = productRepository.findBySkuAndIsActiveTrue("MSE-WRLS-ERG")
+            ProductJpaEntity mouse = productRepository.findBySkuAndIsActiveTrue("MSE-WRLS-ERG")
                     .orElseThrow(() -> new IllegalStateException("Mouse not found"));
 
-            CartItem item1 =
-                    CartItem.builder()
+            CartItemJpaEntity item1 =
+                    CartItemJpaEntity.builder()
                             .cart(activeCart)
                             .productId(keyboard.getId())
                             .productName(keyboard.getName())
                             .quantity(1)
                             .priceSnapshot(keyboard.getPrice())
                             .build();
-            CartItem item2 =
-                    CartItem.builder()
+            CartItemJpaEntity item2 =
+                    CartItemJpaEntity.builder()
                             .cart(activeCart)
                             .productId(mouse.getId())
                             .productName(mouse.getName())
@@ -211,8 +201,8 @@ public class DatabaseSeeder implements CommandLineRunner {
             cartRepository.save(activeCart);
 
             // Seed Default User Cards
-            Card defaultCard =
-                    Card.builder()
+            CardJpaEntity defaultCard =
+                    CardJpaEntity.builder()
                             .user(regularUser)
                             .cardNumber("4242424242424242")
                             .cvc("123")
@@ -222,8 +212,8 @@ public class DatabaseSeeder implements CommandLineRunner {
                             .build();
             cardRepository.save(defaultCard);
 
-            Card adminCard =
-                    Card.builder()
+            CardJpaEntity adminCard =
+                    CardJpaEntity.builder()
                             .user(adminUser)
                             .cardNumber("4242424242424242")
                             .cvc("123")
@@ -238,9 +228,9 @@ public class DatabaseSeeder implements CommandLineRunner {
     }
 
     private void seedOrUpdateProduct(String sku, String name, String description, BigDecimal price, String category, int inventoryQty) {
-        Product product = productRepository.findBySkuAndIsActiveTrue(sku).orElse(null);
+        ProductJpaEntity product = productRepository.findBySkuAndIsActiveTrue(sku).orElse(null);
         if (product == null) {
-            product = new Product();
+            product = new ProductJpaEntity();
             product.setSku(sku);
             product.setName(name);
             product.setDescription(description);
@@ -249,7 +239,7 @@ public class DatabaseSeeder implements CommandLineRunner {
             product.setActive(true);
             productRepository.save(product);
 
-            Inventory inventory = Inventory.builder()
+            InventoryJpaEntity inventory = InventoryJpaEntity.builder()
                     .productId(product.getId())
                     .quantity(inventoryQty)
                     .build();

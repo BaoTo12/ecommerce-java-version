@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: 8085
   shutdown: graceful
   max-http-request-header-size: 16KB
   tomcat:

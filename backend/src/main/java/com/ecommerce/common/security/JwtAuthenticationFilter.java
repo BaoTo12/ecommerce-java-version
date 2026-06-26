@@ -1,6 +1,6 @@
 package com.ecommerce.common.security;
 
-import com.ecommerce.domain.user.repository.UserRepository;
+import com.ecommerce.domain.user.domain.ports.out.UserRepositoryPort;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
@@ -39,9 +39,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
   private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
   private final JwtUtil jwtUtil;
-  private final UserRepository userRepository;
+  private final UserRepositoryPort userRepository;
 
-  public JwtAuthenticationFilter(JwtUtil jwtUtil, UserRepository userRepository) {
+  public JwtAuthenticationFilter(JwtUtil jwtUtil, UserRepositoryPort userRepository) {
     this.jwtUtil = jwtUtil;
     this.userRepository = userRepository;
   }
